@@ -97,6 +97,23 @@
             <span class="countdown-subtext" id="waiting-start-date">開始予定日: ----年--月--日</span>
           </div>
           <p class="notice mt-3">※ 開始日になると自動的に記録入力フォームが開きます。以下の通知設定をしてお待ちください。</p>
+
+          <!-- 待機画面専用の通知設定エリア -->
+          <div class="waiting-notification-card mt-3 p-3" style="background: rgba(255,255,255,0.85); border-radius: 12px; border: 1px solid var(--color-border, #e0e0e0); text-align: left;">
+            <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; color: var(--color-primary, #333);">🔔 リマインダー通知設定 (毎日20:00)</h3>
+            <p class="settings-desc mb-2" style="font-size: 0.85rem; color: #555;">未入力の日に毎日20時、振り返りのリマインド通知をお届けします。</p>
+            <div class="notification-actions mb-2" style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button id="enable-notification-btn-waiting" class="btn btn-secondary btn-sm">通知を許可する</button>
+              <button id="test-notification-btn-waiting" class="btn btn-outline btn-sm">テスト通知を送信</button>
+            </div>
+            <div class="time-picker-group mb-1" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <label for="notification-time-waiting" style="font-size: 0.85rem;">リマインド時間:</label>
+              <input type="time" id="notification-time-waiting" value="20:00" style="padding: 4px 8px; border-radius: 6px; border: 1px solid #ccc;" />
+              <button id="save-time-btn-waiting" class="btn btn-sm btn-primary">設定保存</button>
+            </div>
+            <p class="notice mt-2" id="notification-status-waiting" style="font-size: 0.8rem;">※ 通知を有効にするには、ブラウザの通知許可が必要です。</p>
+          </div>
+
           <button id="logout-btn-waiting" class="btn btn-secondary btn-sm mt-3">ログアウト</button>
         </div>
 

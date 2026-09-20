@@ -1500,7 +1500,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 通知アコーディオン
+  // 通知設定（メイン＆待機共通イベント）
   const notifToggle = document.getElementById('notification-toggle');
   if (notifToggle) {
     notifToggle.addEventListener('click', () => {
@@ -1509,7 +1509,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 通知許可ボタン
   const enableNotifBtn = document.getElementById('enable-notification-btn');
   if (enableNotifBtn) {
     enableNotifBtn.addEventListener('click', async () => {
@@ -1517,7 +1516,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // テスト通知ボタン
+  const enableNotifBtnWaiting = document.getElementById('enable-notification-btn-waiting');
+  if (enableNotifBtnWaiting) {
+    enableNotifBtnWaiting.addEventListener('click', async () => {
+      await requestNotificationPermission();
+    });
+  }
+
   const testNotifBtn = document.getElementById('test-notification-btn');
   if (testNotifBtn) {
     testNotifBtn.addEventListener('click', () => {
@@ -1525,15 +1530,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 通知時間保存ボタン
+  const testNotifBtnWaiting = document.getElementById('test-notification-btn-waiting');
+  if (testNotifBtnWaiting) {
+    testNotifBtnWaiting.addEventListener('click', () => {
+      sendTestNotification();
+    });
+  }
+
   const saveTimeBtn = document.getElementById('save-time-btn');
   if (saveTimeBtn) {
     saveTimeBtn.addEventListener('click', () => {
       const timeVal = document.getElementById('notification-time').value || '20:00';
       localStorage.setItem('tgt_notify_time', timeVal);
+      const timeWaiting = document.getElementById('notification-time-waiting');
+      if (timeWaiting) timeWaiting.value = timeVal;
       showToast(`通知時間を ${timeVal} に設定しました。`);
     });
   }
+
+  const saveTimeBtnWaiting = document.getElementById('save-time-btn-waiting');
+  if (saveTimeBtnWaiting) {
+    saveTimeBtnWaiting.addEventListener('click', () => {
+      const timeVal = document.getElementById('notification-time-waiting').value || '20:00';
+      localStorage.setItem('tgt_notify_time', timeVal);
+      const timeMain = document.getElementById('notification-time');
+      if (timeMain) timeMain.value = timeVal;
+      showToast(`通知時間を ${timeVal} に設定しました。`);
+    });
+  }
+
+  updateNotificationStatusUI();
 
   // 被験者画面用 テストフェーズ切り替えハンドラ
   const handleUserSidePhaseChange = async (e) => {
@@ -1572,20 +1598,42 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function requestNotificationPermission() {
   if (!('Notification' in window)) {
     showToast('お使いのブラウザは通知に対応していません。');
+    updateNotificationStatusUI();
     return false;
   }
   const permission = await Notification.requestPermission();
+  updateNotificationStatusUI();
   if (permission === 'granted') {
     showToast('リマインド通知を許可しました！');
-    const statusEl = document.getElementById('notification-status');
-    if (statusEl) statusEl.innerText = '✅ 通知が許可されています。';
     return true;
   } else {
     showToast('通知が拒否されました。ブラウザの設定で許可してください。');
-    const statusEl = document.getElementById('notification-status');
-    if (statusEl) statusEl.innerText = '⚠️ 通知が拒否されています。';
     return false;
   }
+}
+
+// 通知設定の表示UI更新ヘルパー
+function updateNotificationStatusUI() {
+  const statusEl = document.getElementById('notification-status');
+  const statusWaitingEl = document.getElementById('notification-status-waiting');
+
+  let msg = '※ 通知を有効にするには、ブラウザの通知許可が必要です。';
+  if (!('Notification' in window)) {
+    msg = '⚠️ お使いのブラウザは通知機能に対応していません。';
+  } else if (Notification.permission === 'granted') {
+    msg = '✅ 通知が許可されています。';
+  } else if (Notification.permission === 'denied') {
+    msg = '⚠️ 通知が拒否されています。ブラウザ設定を確認してください。';
+  }
+
+  if (statusEl) statusEl.innerText = msg;
+  if (statusWaitingEl) statusWaitingEl.innerText = msg;
+
+  const savedTime = localStorage.getItem('tgt_notify_time') || '20:00';
+  const timeInputMain = document.getElementById('notification-time');
+  const timeInputWaiting = document.getElementById('notification-time-waiting');
+  if (timeInputMain) timeInputMain.value = savedTime;
+  if (timeInputWaiting) timeInputWaiting.value = savedTime;
 }
 
 // テスト通知送信
