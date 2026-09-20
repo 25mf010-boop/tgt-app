@@ -52,8 +52,8 @@
       <!-- 2. 今日の記録（入力・保存）画面 -->
       <div id="record-view" class="view-container">
         
-        <!-- 🧪 研究者テスト用フェーズ切り替えバー -->
-        <div class="test-phase-bar-card mb-3">
+        <!-- 🧪 研究者テスト用フェーズ切り替えバー (管理者のみ表示) -->
+        <div class="test-phase-bar-card mb-3 hidden">
           <div class="test-phase-bar-inner">
             <span class="test-bar-title">🧪 研究テスト用 フェーズ即時切り替え:</span>
             <select id="user-side-phase-select" class="test-phase-select">
@@ -73,10 +73,10 @@
           <div class="card-header text-center">
             <span class="sub-title">RESEARCH STEP 1</span>
             <h2 class="main-title">📋 初回アンケート①のご協力</h2>
-            <p class="description">研究参加ありがとうございます！記録を始める前に、まず最初のアンケートにお答えください。（約3〜5分）</p>
+            <p class="description">研究参加ありがとうございます！記録を始める前に、まず最初のアンケートにお答えください。（約10分）</p>
           </div>
           <div class="survey-action-box text-center">
-            <a id="survey1-link-btn" href="https://forms.google.com" target="_blank" class="btn btn-primary btn-lg">
+            <a id="survey1-link-btn" href="https://forms.gle/6neenACKZ4Nxs26a6" target="_blank" class="btn btn-primary btn-lg">
               📝 初回アンケート① (Googleフォーム) を開く
             </a>
             <p class="notice mt-2">※ 別タブで開いたフォームに回答後、下のボタンを押してください。</p>
@@ -96,7 +96,7 @@
             <div class="countdown-number" id="waiting-days-left">あと 7 日</div>
             <span class="countdown-subtext" id="waiting-start-date">開始予定日: ----年--月--日</span>
           </div>
-          <p class="notice mt-3">※ 開始日になると自動的に記録入力フォームが開きます。通知設定をしてお待ちください。</p>
+          <p class="notice mt-3">※ 開始日になると自動的に記録入力フォームが開きます。以下の通知設定をしてお待ちください。</p>
           <button id="logout-btn-waiting" class="btn btn-secondary btn-sm mt-3">ログアウト</button>
         </div>
 
@@ -111,7 +111,7 @@
                 <h3 class="banner-title">📋 中間アンケート②にご協力ください</h3>
                 <p class="banner-desc">TGT記録1週間お疲れ様です！中間アンケート（約3分）へお答えください。</p>
               </div>
-              <a id="survey2-link-btn" href="https://forms.google.com" target="_blank" class="btn btn-primary btn-sm">
+              <a id="survey2-link-btn" href="https://forms.gle/CLGAThX9uHh1HSbk9" target="_blank" class="btn btn-primary btn-sm">
                 アンケート②を開く ➔
               </a>
             </div>
@@ -297,8 +297,10 @@
           </form>
         </div>
 
-        <!-- 通知設定（アコーディオン） -->
-        <div class="paper-card notification-card">
+        </div> <!-- /#tgt-main-wrapper -->
+
+        <!-- 通知設定（アコーディオン：待機期間中もTGT期間中も共通で表示） -->
+        <div id="notification-card" class="paper-card notification-card hidden">
           <button class="accordion-toggle" id="notification-toggle">
             <span>🔔 リマインダー通知設定 (毎日20:00)</span>
             <span class="arrow">▼</span>
@@ -317,14 +319,13 @@
             <p class="notice" id="notification-status">※ 通知を有効にするには、ブラウザの通知許可が必要です。</p>
           </div>
         </div>
-      </div> <!-- /#tgt-main-wrapper -->
-    </div>
+      </div>
 
       <!-- 3. 完了画面 (お洒落なオリーブリーフSVG仕様) -->
       <div id="complete-view" class="view-container">
 
-        <!-- 🧪 研究者テスト用フェーズ切り替えバー -->
-        <div class="test-phase-bar-card mb-3">
+        <!-- 🧪 研究者テスト用フェーズ切り替えバー (管理者のみ表示) -->
+        <div class="test-phase-bar-card mb-3 hidden">
           <div class="test-phase-bar-inner">
             <span class="test-bar-title">🧪 研究テスト用 フェーズ即時切り替え:</span>
             <select id="user-side-phase-select-complete" class="test-phase-select">
@@ -381,7 +382,7 @@
               <span class="sub-title">POST-INTERVENTION STEP</span>
               <h2 class="survey-title">🎉 14日間の記録完了！事後アンケート③</h2>
               <p class="survey-desc">14日間のTGT記録、誠にありがとうございました！<br>事後アンケート③（約3分）にご回答をお願いいたします。</p>
-              <a id="survey3-link-btn" href="https://forms.google.com" target="_blank" class="btn btn-primary btn-lg mt-2">
+              <a id="survey3-link-btn" href="https://forms.gle/netmLfrQxQieFrN86" target="_blank" class="btn btn-primary btn-lg mt-2">
                 📝 事後アンケート③ (Googleフォーム) を開く
               </a>
               <p class="notice mt-2">※ 回答完了後、下のボタンを押してください。</p>
