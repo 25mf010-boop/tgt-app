@@ -1500,7 +1500,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 通知設定（メイン＆待機共通イベント）
+  // 通知設定イベント
   const notifToggle = document.getElementById('notification-toggle');
   if (notifToggle) {
     notifToggle.addEventListener('click', () => {
@@ -1516,23 +1516,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  const enableNotifBtnWaiting = document.getElementById('enable-notification-btn-waiting');
-  if (enableNotifBtnWaiting) {
-    enableNotifBtnWaiting.addEventListener('click', async () => {
-      await requestNotificationPermission();
-    });
-  }
-
   const testNotifBtn = document.getElementById('test-notification-btn');
   if (testNotifBtn) {
     testNotifBtn.addEventListener('click', () => {
-      sendTestNotification();
-    });
-  }
-
-  const testNotifBtnWaiting = document.getElementById('test-notification-btn-waiting');
-  if (testNotifBtnWaiting) {
-    testNotifBtnWaiting.addEventListener('click', () => {
       sendTestNotification();
     });
   }
@@ -1542,19 +1528,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveTimeBtn.addEventListener('click', () => {
       const timeVal = document.getElementById('notification-time').value || '20:00';
       localStorage.setItem('tgt_notify_time', timeVal);
-      const timeWaiting = document.getElementById('notification-time-waiting');
-      if (timeWaiting) timeWaiting.value = timeVal;
-      showToast(`通知時間を ${timeVal} に設定しました。`);
-    });
-  }
-
-  const saveTimeBtnWaiting = document.getElementById('save-time-btn-waiting');
-  if (saveTimeBtnWaiting) {
-    saveTimeBtnWaiting.addEventListener('click', () => {
-      const timeVal = document.getElementById('notification-time-waiting').value || '20:00';
-      localStorage.setItem('tgt_notify_time', timeVal);
-      const timeMain = document.getElementById('notification-time');
-      if (timeMain) timeMain.value = timeVal;
       showToast(`通知時間を ${timeVal} に設定しました。`);
     });
   }
@@ -1615,7 +1588,6 @@ async function requestNotificationPermission() {
 // 通知設定の表示UI更新ヘルパー
 function updateNotificationStatusUI() {
   const statusEl = document.getElementById('notification-status');
-  const statusWaitingEl = document.getElementById('notification-status-waiting');
 
   let msg = '※ 通知を有効にするには、ブラウザの通知許可が必要です。';
   if (!('Notification' in window)) {
@@ -1627,13 +1599,10 @@ function updateNotificationStatusUI() {
   }
 
   if (statusEl) statusEl.innerText = msg;
-  if (statusWaitingEl) statusWaitingEl.innerText = msg;
 
   const savedTime = localStorage.getItem('tgt_notify_time') || '20:00';
   const timeInputMain = document.getElementById('notification-time');
-  const timeInputWaiting = document.getElementById('notification-time-waiting');
   if (timeInputMain) timeInputMain.value = savedTime;
-  if (timeInputWaiting) timeInputWaiting.value = savedTime;
 }
 
 // テスト通知送信
