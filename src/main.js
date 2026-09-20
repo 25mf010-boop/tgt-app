@@ -27,11 +27,15 @@ let state = {
 };
 
 // 研究用GoogleフォームURL管理
-let surveyUrls = {
-  survey1: localStorage.getItem('tgt_survey1_url') || 'https://forms.google.com',
-  survey2: localStorage.getItem('tgt_survey2_url') || 'https://forms.google.com',
-  survey3: localStorage.getItem('tgt_survey3_url') || 'https://forms.google.com'
-};
+function loadSurveyUrls() {
+  const savedUrls = JSON.parse(localStorage.getItem('tgt_survey_urls') || '{}');
+  return {
+    survey1: savedUrls.survey1 || localStorage.getItem('tgt_survey1_url') || 'https://forms.gle/6neenACKZ4Nxs26a6',
+    survey2: savedUrls.survey2 || localStorage.getItem('tgt_survey2_url') || 'https://forms.gle/CLGAThX9uHh1HSbk9',
+    survey3: savedUrls.survey3 || localStorage.getItem('tgt_survey3_url') || 'https://forms.gle/netmLfrQxQieFrN86'
+  };
+}
+let surveyUrls = loadSurveyUrls();
 
 // ユーザーごとのフェーズ状態ヘルパー
 function getUserPhaseData(userId) {
@@ -316,17 +320,36 @@ async function updateRecordView() {
   const userId = state.currentUser;
   if (!userId) return;
 
+  // 研究者テスト用フェーズ切り替えバーの表示制御 (管理者のみ表示)
+  document.querySelectorAll('.test-phase-bar-card').forEach(card => {
+    if (state.isAdmin) {
+      card.classList.remove('hidden');
+    } else {
+      card.classList.add('hidden');
+    }
+  });
+
   const phaseInfo = await getParticipantPhase(userId);
 
   const initialSurveyCard = document.getElementById('initial-survey-card');
   const waitingCard = document.getElementById('waiting-countdown-card');
   const tgtMainWrapper = document.getElementById('tgt-main-wrapper');
   const midtermBanner = document.getElementById('midterm-survey-banner');
+  const notificationCard = document.getElementById('notification-card');
 
   // GoogleフォームURLをボタンに反映
   document.getElementById('survey1-link-btn').href = surveyUrls.survey1;
   document.getElementById('survey2-link-btn').href = surveyUrls.survey2;
   document.getElementById('survey3-link-btn').href = surveyUrls.survey3;
+
+  // 初回アンケート完了後は通知設定を表示 (待機中・TGT期ともに利用可能)
+  if (notificationCard) {
+    if (phaseInfo.phase !== 'baseline') {
+      notificationCard.classList.remove('hidden');
+    } else {
+      notificationCard.classList.add('hidden');
+    }
+  }
 
   // 1. 初回アンケート①未回答時
   if (phaseInfo.phase === 'baseline') {
@@ -454,6 +477,15 @@ async function updateRecordView() {
 async function updateCompleteView() {
   const userId = state.currentUser;
   if (!userId) return;
+
+  // 研究者テスト用フェーズ切り替えバーの表示制御 (管理者のみ表示)
+  document.querySelectorAll('.test-phase-bar-card').forEach(card => {
+    if (state.isAdmin) {
+      card.classList.remove('hidden');
+    } else {
+      card.classList.add('hidden');
+    }
+  });
 
   const progress = await getParticipantProgress(userId);
   const phaseData = await getUserPhaseData(userId);
@@ -1430,12 +1462,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 管理者画面の Google フォーム URL 保存
   const adminUrlsForm = document.getElementById('admin-urls-form');
   if (adminUrlsForm) {
+    const url1Input = document.getElementById('url-survey-1');
+    const url2Input = document.getElementById('url-survey-2');
+    const url3Input = document.getElementById('url-survey-3');
+    if (url1Input) url1Input.value = surveyUrls.survey1;
+    if (url2Input) url2Input.value = surveyUrls.survey2;
+    if (url3Input) url3Input.value = surveyUrls.survey3;
+
     adminUrlsForm.addEventListener('submit', (e) => {
       e.preventDefault();
       surveyUrls.survey1 = document.getElementById('url-survey-1').value.trim();
       surveyUrls.survey2 = document.getElementById('url-survey-2').value.trim();
       surveyUrls.survey3 = document.getElementById('url-survey-3').value.trim();
       localStorage.setItem('tgt_survey_urls', JSON.stringify(surveyUrls));
+      localStorage.setItem('tgt_survey1_url', surveyUrls.survey1);
+      localStorage.setItem('tgt_survey2_url', surveyUrls.survey2);
+      localStorage.setItem('tgt_survey3_url', surveyUrls.survey3);
       showToast('アンケートURLを保存しました。');
     });
   }
@@ -1458,7 +1500,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 通知アコーディオン
+  // 通知設定（メイン＆待機共通イベント）
   const notifToggle = document.getElementById('notification-toggle');
   if (notifToggle) {
     notifToggle.addEventListener('click', () => {
@@ -1467,7 +1509,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 通知許可ボタン
   const enableNotifBtn = document.getElementById('enable-notification-btn');
   if (enableNotifBtn) {
     enableNotifBtn.addEventListener('click', async () => {
@@ -1475,7 +1516,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // テスト通知ボタン
+  const enableNotifBtnWaiting = document.getElementById('enable-notification-btn-waiting');
+  if (enableNotifBtnWaiting) {
+    enableNotifBtnWaiting.addEventListener('click', async () => {
+      await requestNotificationPermission();
+    });
+  }
+
   const testNotifBtn = document.getElementById('test-notification-btn');
   if (testNotifBtn) {
     testNotifBtn.addEventListener('click', () => {
@@ -1483,15 +1530,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 通知時間保存ボタン
+  const testNotifBtnWaiting = document.getElementById('test-notification-btn-waiting');
+  if (testNotifBtnWaiting) {
+    testNotifBtnWaiting.addEventListener('click', () => {
+      sendTestNotification();
+    });
+  }
+
   const saveTimeBtn = document.getElementById('save-time-btn');
   if (saveTimeBtn) {
     saveTimeBtn.addEventListener('click', () => {
       const timeVal = document.getElementById('notification-time').value || '20:00';
       localStorage.setItem('tgt_notify_time', timeVal);
+      const timeWaiting = document.getElementById('notification-time-waiting');
+      if (timeWaiting) timeWaiting.value = timeVal;
       showToast(`通知時間を ${timeVal} に設定しました。`);
     });
   }
+
+  const saveTimeBtnWaiting = document.getElementById('save-time-btn-waiting');
+  if (saveTimeBtnWaiting) {
+    saveTimeBtnWaiting.addEventListener('click', () => {
+      const timeVal = document.getElementById('notification-time-waiting').value || '20:00';
+      localStorage.setItem('tgt_notify_time', timeVal);
+      const timeMain = document.getElementById('notification-time');
+      if (timeMain) timeMain.value = timeVal;
+      showToast(`通知時間を ${timeVal} に設定しました。`);
+    });
+  }
+
+  updateNotificationStatusUI();
 
   // 被験者画面用 テストフェーズ切り替えハンドラ
   const handleUserSidePhaseChange = async (e) => {
@@ -1530,20 +1598,42 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function requestNotificationPermission() {
   if (!('Notification' in window)) {
     showToast('お使いのブラウザは通知に対応していません。');
+    updateNotificationStatusUI();
     return false;
   }
   const permission = await Notification.requestPermission();
+  updateNotificationStatusUI();
   if (permission === 'granted') {
     showToast('リマインド通知を許可しました！');
-    const statusEl = document.getElementById('notification-status');
-    if (statusEl) statusEl.innerText = '✅ 通知が許可されています。';
     return true;
   } else {
     showToast('通知が拒否されました。ブラウザの設定で許可してください。');
-    const statusEl = document.getElementById('notification-status');
-    if (statusEl) statusEl.innerText = '⚠️ 通知が拒否されています。';
     return false;
   }
+}
+
+// 通知設定の表示UI更新ヘルパー
+function updateNotificationStatusUI() {
+  const statusEl = document.getElementById('notification-status');
+  const statusWaitingEl = document.getElementById('notification-status-waiting');
+
+  let msg = '※ 通知を有効にするには、ブラウザの通知許可が必要です。';
+  if (!('Notification' in window)) {
+    msg = '⚠️ お使いのブラウザは通知機能に対応していません。';
+  } else if (Notification.permission === 'granted') {
+    msg = '✅ 通知が許可されています。';
+  } else if (Notification.permission === 'denied') {
+    msg = '⚠️ 通知が拒否されています。ブラウザ設定を確認してください。';
+  }
+
+  if (statusEl) statusEl.innerText = msg;
+  if (statusWaitingEl) statusWaitingEl.innerText = msg;
+
+  const savedTime = localStorage.getItem('tgt_notify_time') || '20:00';
+  const timeInputMain = document.getElementById('notification-time');
+  const timeInputWaiting = document.getElementById('notification-time-waiting');
+  if (timeInputMain) timeInputMain.value = savedTime;
+  if (timeInputWaiting) timeInputWaiting.value = savedTime;
 }
 
 // テスト通知送信
