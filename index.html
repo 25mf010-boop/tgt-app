@@ -51,7 +51,73 @@
 
       <!-- 2. 今日の記録（入力・保存）画面 -->
       <div id="record-view" class="view-container">
-        <div class="paper-card header-card">
+        
+        <!-- 🧪 研究者テスト用フェーズ切り替えバー -->
+        <div class="test-phase-bar-card mb-3">
+          <div class="test-phase-bar-inner">
+            <span class="test-bar-title">🧪 研究テスト用 フェーズ即時切り替え:</span>
+            <select id="user-side-phase-select" class="test-phase-select">
+              <option value="">▼ 画面状態を選択して確認</option>
+              <option value="baseline">1. 初回アンケート①未回答カード</option>
+              <option value="waiting">2. 7日間待機＆カウントダウンロック</option>
+              <option value="tgt1">3. TGT1日目 (記録フォーム解放)</option>
+              <option value="tgt7">4. TGT7日目 (中間アンケート②バナー)</option>
+              <option value="tgt14">5. TGT14日目 (14日達成・事後アンケート③)</option>
+              <option value="complete">6. 全工程完了感謝画面</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 初回アンケート①カード (対面当日ログイン時) -->
+        <div id="initial-survey-card" class="paper-card survey-card hidden">
+          <div class="card-header text-center">
+            <span class="sub-title">RESEARCH STEP 1</span>
+            <h2 class="main-title">📋 初回アンケート①のご協力</h2>
+            <p class="description">研究参加ありがとうございます！記録を始める前に、まず最初のアンケートにお答えください。（約3〜5分）</p>
+          </div>
+          <div class="survey-action-box text-center">
+            <a id="survey1-link-btn" href="https://forms.google.com" target="_blank" class="btn btn-primary btn-lg">
+              📝 初回アンケート① (Googleフォーム) を開く
+            </a>
+            <p class="notice mt-2">※ 別タブで開いたフォームに回答後、下のボタンを押してください。</p>
+            <button id="survey1-complete-btn" class="btn btn-secondary mt-2">
+              ✅ アンケート回答完了（待機期間へ進む）
+            </button>
+          </div>
+        </div>
+
+        <!-- 7日間待機カウントダウンカード -->
+        <div id="waiting-countdown-card" class="paper-card countdown-card hidden text-center">
+          <span class="sub-title">RESEARCH STEP 2</span>
+          <h2 class="main-title">⏳ TGT記録開始までの待機期間</h2>
+          <p class="description">初回アンケートのご回答ありがとうございました。<br>TGT記録開始までそのままお待ちください。</p>
+          <div class="countdown-badge-box">
+            <span class="countdown-label">TGT記録スタートまで</span>
+            <div class="countdown-number" id="waiting-days-left">あと 7 日</div>
+            <span class="countdown-subtext" id="waiting-start-date">開始予定日: ----年--月--日</span>
+          </div>
+          <p class="notice mt-3">※ 開始日になると自動的に記録入力フォームが開きます。通知設定をしてお待ちください。</p>
+          <button id="logout-btn-waiting" class="btn btn-secondary btn-sm mt-3">ログアウト</button>
+        </div>
+
+        <!-- TGTメイン入力コンテンツ（TGT介入期に表示） -->
+        <div id="tgt-main-wrapper" class="hidden">
+          
+          <!-- 中間アンケート②告知バナー (7日目に表示) -->
+          <div id="midterm-survey-banner" class="paper-card midterm-banner-card hidden mb-3">
+            <div class="banner-flex">
+              <div>
+                <span class="badge-tag">7日目特別タスク</span>
+                <h3 class="banner-title">📋 中間アンケート②にご協力ください</h3>
+                <p class="banner-desc">TGT記録1週間お疲れ様です！中間アンケート（約3分）へお答えください。</p>
+              </div>
+              <a id="survey2-link-btn" href="https://forms.google.com" target="_blank" class="btn btn-primary btn-sm">
+                アンケート②を開く ➔
+              </a>
+            </div>
+          </div>
+
+          <div class="paper-card header-card">
           <div class="header-flex">
             <div>
               <span class="sub-title">THREE GOOD THINGS</span>
@@ -234,27 +300,45 @@
         <!-- 通知設定（アコーディオン） -->
         <div class="paper-card notification-card">
           <button class="accordion-toggle" id="notification-toggle">
-            <span>🔔 リマインダー通知設定</span>
+            <span>🔔 リマインダー通知設定 (毎日20:00)</span>
             <span class="arrow">▼</span>
           </button>
           <div class="notification-content collapsed" id="notification-settings">
-            <p class="settings-desc">毎日忘れずに記録できるよう、通知を設定できます。</p>
-            <div class="notification-actions">
+            <p class="settings-desc">未入力の日に毎日20時、振り返りのリマインド通知をお届けします。</p>
+            <div class="notification-actions mb-2">
               <button id="enable-notification-btn" class="btn btn-secondary">通知を許可する</button>
-              <button id="test-notification-btn" class="btn btn-outline">通知テスト（5秒後）</button>
+              <button id="test-notification-btn" class="btn btn-outline">テスト通知を送信</button>
             </div>
             <div class="time-picker-group">
-              <label for="notification-time">毎日の通知時間:</label>
-              <input type="time" id="notification-time" value="21:00" />
-              <button id="save-time-btn" class="btn btn-sm btn-primary">時間設定を保存</button>
+              <label for="notification-time">リマインド時間:</label>
+              <input type="time" id="notification-time" value="20:00" />
+              <button id="save-time-btn" class="btn btn-sm btn-primary">設定保存</button>
             </div>
             <p class="notice" id="notification-status">※ 通知を有効にするには、ブラウザの通知許可が必要です。</p>
           </div>
         </div>
-      </div>
+      </div> <!-- /#tgt-main-wrapper -->
+    </div>
 
       <!-- 3. 完了画面 (お洒落なオリーブリーフSVG仕様) -->
       <div id="complete-view" class="view-container">
+
+        <!-- 🧪 研究者テスト用フェーズ切り替えバー -->
+        <div class="test-phase-bar-card mb-3">
+          <div class="test-phase-bar-inner">
+            <span class="test-bar-title">🧪 研究テスト用 フェーズ即時切り替え:</span>
+            <select id="user-side-phase-select-complete" class="test-phase-select">
+              <option value="">▼ 画面状態を選択して確認</option>
+              <option value="baseline">1. 初回アンケート①未回答カード</option>
+              <option value="waiting">2. 7日間待機＆カウントダウンロック</option>
+              <option value="tgt1">3. TGT1日目 (記録フォーム解放)</option>
+              <option value="tgt7">4. TGT7日目 (中間アンケート②バナー)</option>
+              <option value="tgt14">5. TGT14日目 (14日達成・事後アンケート③)</option>
+              <option value="complete">6. 全工程完了感謝画面</option>
+            </select>
+          </div>
+        </div>
+
         <div class="paper-card text-center">
           
           <!-- 🎉の代わりに上品な手書き風オリーブリーフSVGを配置 -->
@@ -291,8 +375,32 @@
             🔥 連続記録日数: <span id="streak-days">1</span>日目！
           </div>
 
+          <!-- 14日目記録完了後の事後アンケート③カード -->
+          <div id="final-survey-card" class="final-survey-card hidden mt-3">
+            <div class="highlight-survey-box text-center">
+              <span class="sub-title">POST-INTERVENTION STEP</span>
+              <h2 class="survey-title">🎉 14日間の記録完了！事後アンケート③</h2>
+              <p class="survey-desc">14日間のTGT記録、誠にありがとうございました！<br>事後アンケート③（約3分）にご回答をお願いいたします。</p>
+              <a id="survey3-link-btn" href="https://forms.google.com" target="_blank" class="btn btn-primary btn-lg mt-2">
+                📝 事後アンケート③ (Googleフォーム) を開く
+              </a>
+              <p class="notice mt-2">※ 回答完了後、下のボタンを押してください。</p>
+              <button id="survey3-complete-btn" class="btn btn-secondary btn-sm mt-2">
+                ✅ 事後アンケート回答完了
+              </button>
+            </div>
+          </div>
+
+          <!-- 全工程完了感謝表示 -->
+          <div id="all-complete-thanks-card" class="thanks-card hidden text-center mt-3">
+            <div class="thanks-box">
+              <h2>✨ すべての調査工程が完了しました！</h2>
+              <p>ご協力心より感謝申し上げます。<br>1ヶ月後のフォローアップ調査のご案内は、追ってメール等にてお送りいたします。</p>
+            </div>
+          </div>
+
           <!-- 完了画面ボタン（今日の記録へ戻るボタンを追加） -->
-          <div class="complete-actions">
+          <div class="complete-actions mt-3">
             <button id="complete-back-btn" class="btn btn-primary btn-lg">今日の記録画面へ</button>
             <button id="complete-done-btn" class="btn btn-secondary">ログイン画面へ戻る（ログアウト）</button>
           </div>
@@ -328,14 +436,34 @@
               <div class="input-inline-group">
                 <div class="input-field-inline">
                   <label for="new-user-id">被験者ID</label>
-                  <input type="text" id="new-user-id" placeholder="例: A003" required />
+                  <input type="text" id="new-user-id" placeholder="例: apple" required />
                 </div>
                 <div class="input-field-inline">
                   <label for="new-user-pw">パスワード</label>
-                  <input type="text" id="new-user-pw" placeholder="例: pass123" required />
+                  <input type="text" id="new-user-pw" placeholder="例: p12" required />
                 </div>
                 <button type="submit" class="btn btn-primary btn-sm btn-create">登録</button>
               </div>
+            </form>
+          </div>
+
+          <!-- GoogleフォームURL設定エリア -->
+          <div class="admin-create-user-section mt-3">
+            <h3 class="section-subtitle">🔗 研究用GoogleフォームURL設定</h3>
+            <form id="admin-urls-form" class="admin-urls-form">
+              <div class="input-field-inline mb-2">
+                <label for="url-survey-1">① 初回アンケート① URL</label>
+                <input type="url" id="url-survey-1" placeholder="https://forms.gle/..." required />
+              </div>
+              <div class="input-field-inline mb-2">
+                <label for="url-survey-2">② 中間アンケート② URL</label>
+                <input type="url" id="url-survey-2" placeholder="https://forms.gle/..." required />
+              </div>
+              <div class="input-field-inline mb-2">
+                <label for="url-survey-3">③ 事後アンケート③ URL</label>
+                <input type="url" id="url-survey-3" placeholder="https://forms.gle/..." required />
+              </div>
+              <button type="submit" class="btn btn-secondary btn-sm mt-2">URL設定を保存</button>
             </form>
           </div>
 
@@ -355,6 +483,7 @@
                 <tr>
                   <th>被験者ID</th>
                   <th>パスワード</th>
+                  <th>研究フェーズ</th>
                   <th>進捗 (完了日数)</th>
                   <th>連続記録日数</th>
                   <th>最終記録日時</th>
@@ -377,6 +506,20 @@
           <div class="detail-timeline" id="detail-timeline-content">
             <!-- 被験者の記録履歴が時系列で表示されます -->
           </div>
+        <!-- 被験者パスワード変更モーダル -->
+        <div id="admin-edit-pw-card" class="paper-card admin-detail-card hidden mt-3">
+          <div class="detail-header">
+            <h3>🔑 被験者 <span id="edit-user-id-display">A001</span> のパスワード変更</h3>
+            <button id="close-edit-pw-btn" class="btn btn-secondary btn-sm">キャンセル</button>
+          </div>
+          <form id="admin-edit-pw-form" class="mt-2">
+            <input type="hidden" id="edit-target-user-id" />
+            <div class="input-field-inline mb-2">
+              <label for="new-pw-input">新しいパスワード</label>
+              <input type="text" id="new-pw-input" placeholder="新しいパスワードを入力" required />
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">パスワードを更新</button>
+          </form>
         </div>
       </div>
 
