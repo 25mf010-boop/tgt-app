@@ -60,10 +60,11 @@
               <option value="">▼ 画面状態を選択して確認</option>
               <option value="baseline">1. 初回アンケート①未回答カード</option>
               <option value="waiting">2. 7日間待機＆カウントダウンロック</option>
-              <option value="tgt1">3. TGT1日目 (記録フォーム解放)</option>
-              <option value="tgt7">4. TGT7日目 (中間アンケート②バナー)</option>
-              <option value="tgt14">5. TGT14日目 (14日達成・事後アンケート③)</option>
-              <option value="complete">6. 全工程完了感謝画面</option>
+              <option value="pre_intervention">3. 介入開始時アンケート②未回答 (1日目記入前)</option>
+              <option value="tgt1">4. TGT1日目 (記録フォーム解放)</option>
+              <option value="tgt7">5. TGT7日目 (中間アンケート③バナー)</option>
+              <option value="tgt14">6. TGT14日目 (14日達成・事後アンケート④)</option>
+              <option value="complete">7. 全工程完了感謝画面</option>
             </select>
           </div>
         </div>
@@ -96,23 +97,41 @@
             <div class="countdown-number" id="waiting-days-left">あと 7 日</div>
             <span class="countdown-subtext" id="waiting-start-date">開始予定日: ----年--月--日</span>
           </div>
-          <p class="notice mt-3">※ 開始日になると自動的に記録入力フォームが開きます。以下の通知設定をしてお待ちください。</p>
+          <p class="notice mt-3">※ 開始日になると自動的に介入開始時アンケート②案内が開きます。以下の通知設定をしてお待ちください。</p>
           <button id="logout-btn-waiting" class="btn btn-secondary btn-sm mt-3">ログアウト</button>
+        </div>
+
+        <!-- 介入開始時アンケート②カード (7日間待機終了後、1日目記入前) -->
+        <div id="intervention-survey-card" class="paper-card survey-card hidden">
+          <div class="card-header text-center">
+            <span class="sub-title">RESEARCH STEP 3</span>
+            <h2 class="main-title">📋 介入開始時アンケート②のご協力</h2>
+            <p class="description">7日間の待機期間お疲れ様でした！記録（1日目）を開始する前に、介入開始時アンケートにご回答ください。（約5分）</p>
+          </div>
+          <div class="survey-action-box text-center">
+            <a id="survey2-link-btn" href="https://forms.gle/2197caaQaUsnhHAm7" target="_blank" class="btn btn-primary btn-lg">
+              📝 介入開始時アンケート② (Googleフォーム) を開く
+            </a>
+            <p class="notice mt-2">※ 別タブで開いたフォームに回答後、下のボタンを押してください。</p>
+            <button id="survey2-complete-btn" class="btn btn-secondary mt-2">
+              ✅ アンケート回答完了（1日目の記録を開始する）
+            </button>
+          </div>
         </div>
 
         <!-- TGTメイン入力コンテンツ（TGT介入期に表示） -->
         <div id="tgt-main-wrapper" class="hidden">
           
-          <!-- 中間アンケート②告知バナー (7日目に表示) -->
+          <!-- 中間アンケート③告知バナー (7日目に表示) -->
           <div id="midterm-survey-banner" class="paper-card midterm-banner-card hidden mb-3">
             <div class="banner-flex">
               <div>
                 <span class="badge-tag">7日目特別タスク</span>
-                <h3 class="banner-title">📋 中間アンケート②にご協力ください</h3>
-                <p class="banner-desc">TGT記録1週間お疲れ様です！中間アンケート（約3分）へお答えください。</p>
+                <h3 class="banner-title">📋 中間アンケート③にご協力ください</h3>
+                <p class="banner-desc">TGT記録1週間お疲れ様です！中間アンケート③（約3分）へお答えください。</p>
               </div>
-              <a id="survey2-link-btn" href="https://forms.gle/CLGAThX9uHh1HSbk9" target="_blank" class="btn btn-primary btn-sm">
-                アンケート②を開く ➔
+              <a id="survey3-link-btn" href="https://forms.gle/netmLfrQxQieFrN86" target="_blank" class="btn btn-primary btn-sm">
+                アンケート③を開く ➔
               </a>
             </div>
           </div>
@@ -332,10 +351,11 @@
               <option value="">▼ 画面状態を選択して確認</option>
               <option value="baseline">1. 初回アンケート①未回答カード</option>
               <option value="waiting">2. 7日間待機＆カウントダウンロック</option>
-              <option value="tgt1">3. TGT1日目 (記録フォーム解放)</option>
-              <option value="tgt7">4. TGT7日目 (中間アンケート②バナー)</option>
-              <option value="tgt14">5. TGT14日目 (14日達成・事後アンケート③)</option>
-              <option value="complete">6. 全工程完了感謝画面</option>
+              <option value="pre_intervention">3. 介入開始時アンケート②未回答 (1日目記入前)</option>
+              <option value="tgt1">4. TGT1日目 (記録フォーム解放)</option>
+              <option value="tgt7">5. TGT7日目 (中間アンケート③バナー)</option>
+              <option value="tgt14">6. TGT14日目 (14日達成・事後アンケート④)</option>
+              <option value="complete">7. 全工程完了感謝画面</option>
             </select>
           </div>
         </div>
@@ -376,17 +396,17 @@
             🔥 連続記録日数: <span id="streak-days">1</span>日目！
           </div>
 
-          <!-- 14日目記録完了後の事後アンケート③カード -->
+          <!-- 14日目記録完了後の事後アンケート④カード -->
           <div id="final-survey-card" class="final-survey-card hidden mt-3">
             <div class="highlight-survey-box text-center">
               <span class="sub-title">POST-INTERVENTION STEP</span>
-              <h2 class="survey-title">🎉 14日間の記録完了！事後アンケート③</h2>
-              <p class="survey-desc">14日間のTGT記録、誠にありがとうございました！<br>事後アンケート③（約3分）にご回答をお願いいたします。</p>
-              <a id="survey3-link-btn" href="https://forms.gle/netmLfrQxQieFrN86" target="_blank" class="btn btn-primary btn-lg mt-2">
-                📝 事後アンケート③ (Googleフォーム) を開く
+              <h2 class="survey-title">🎉 14日間の記録完了！事後アンケート④</h2>
+              <p class="survey-desc">14日間のTGT記録、誠にありがとうございました！<br>事後アンケート④（約3分）にご回答をお願いいたします。</p>
+              <a id="survey4-link-btn" href="https://forms.gle/netmLfrQxQieFrN86" target="_blank" class="btn btn-primary btn-lg mt-2">
+                📝 事後アンケート④ (Googleフォーム) を開く
               </a>
               <p class="notice mt-2">※ 回答完了後、下のボタンを押してください。</p>
-              <button id="survey3-complete-btn" class="btn btn-secondary btn-sm mt-2">
+              <button id="survey4-complete-btn" class="btn btn-secondary btn-sm mt-2">
                 ✅ 事後アンケート回答完了
               </button>
             </div>
@@ -457,12 +477,16 @@
                 <input type="url" id="url-survey-1" placeholder="https://forms.gle/..." required />
               </div>
               <div class="input-field-inline mb-2">
-                <label for="url-survey-2">② 中間アンケート② URL</label>
+                <label for="url-survey-2">② 介入開始時アンケート② URL</label>
                 <input type="url" id="url-survey-2" placeholder="https://forms.gle/..." required />
               </div>
               <div class="input-field-inline mb-2">
-                <label for="url-survey-3">③ 事後アンケート③ URL</label>
+                <label for="url-survey-3">③ 中間アンケート③ URL</label>
                 <input type="url" id="url-survey-3" placeholder="https://forms.gle/..." required />
+              </div>
+              <div class="input-field-inline mb-2">
+                <label for="url-survey-4">④ 事後アンケート④ URL</label>
+                <input type="url" id="url-survey-4" placeholder="https://forms.gle/..." required />
               </div>
               <button type="submit" class="btn btn-secondary btn-sm mt-2">URL設定を保存</button>
             </form>

@@ -31,8 +31,9 @@ function loadSurveyUrls() {
   const savedUrls = JSON.parse(localStorage.getItem('tgt_survey_urls') || '{}');
   return {
     survey1: savedUrls.survey1 || localStorage.getItem('tgt_survey1_url') || 'https://forms.gle/6neenACKZ4Nxs26a6',
-    survey2: savedUrls.survey2 || localStorage.getItem('tgt_survey2_url') || 'https://forms.gle/CLGAThX9uHh1HSbk9',
-    survey3: savedUrls.survey3 || localStorage.getItem('tgt_survey3_url') || 'https://forms.gle/netmLfrQxQieFrN86'
+    survey2: savedUrls.survey2 || localStorage.getItem('tgt_survey2_url') || 'https://forms.gle/2197caaQaUsnhHAm7',
+    survey3: savedUrls.survey3 || localStorage.getItem('tgt_survey3_url') || 'https://forms.gle/CLGAThX9uHh1HSbk9',
+    survey4: savedUrls.survey4 || localStorage.getItem('tgt_survey4_url') || 'https://forms.gle/netmLfrQxQieFrN86'
   };
 }
 let surveyUrls = loadSurveyUrls();
@@ -43,7 +44,9 @@ function getUserPhaseData(userId) {
   return allPhases[userId] || {
     survey1_completed: false,
     survey1_date: null,
-    survey3_completed: false
+    survey2_completed: false,
+    survey3_completed: false,
+    survey4_completed: false
   };
 }
 
@@ -88,8 +91,17 @@ async function getParticipantPhase(userId) {
     };
   }
 
-  // 3. 全工程完了
-  if (phaseData.survey3_completed) {
+  // 3. 7日間待機終了直後、かつ介入開始時アンケート②未回答 ➔ "pre_intervention" (1日目記入直前)
+  if (!phaseData.survey2_completed) {
+    return {
+      phase: 'pre_intervention',
+      label: '介入開始時アンケート②未回答',
+      badgeClass: 'baseline'
+    };
+  }
+
+  // 4. 全工程完了 (事後アンケート④完了)
+  if (phaseData.survey4_completed || phaseData.survey3_completed) {
     return {
       phase: 'complete',
       label: '全工程完了🎉',
@@ -97,7 +109,7 @@ async function getParticipantPhase(userId) {
     };
   }
 
-  // 4. TGT実施中
+  // 5. TGT実施中
   return {
     phase: 'tgt',
     label: `TGT実施中 (${progress.currentDayNum}日目)`,
@@ -333,16 +345,22 @@ async function updateRecordView() {
 
   const initialSurveyCard = document.getElementById('initial-survey-card');
   const waitingCard = document.getElementById('waiting-countdown-card');
+  const interventionSurveyCard = document.getElementById('intervention-survey-card');
   const tgtMainWrapper = document.getElementById('tgt-main-wrapper');
   const midtermBanner = document.getElementById('midterm-survey-banner');
   const notificationCard = document.getElementById('notification-card');
 
   // GoogleフォームURLをボタンに反映
-  document.getElementById('survey1-link-btn').href = surveyUrls.survey1;
-  document.getElementById('survey2-link-btn').href = surveyUrls.survey2;
-  document.getElementById('survey3-link-btn').href = surveyUrls.survey3;
+  const s1Btn = document.getElementById('survey1-link-btn');
+  const s2Btn = document.getElementById('survey2-link-btn');
+  const s3Btn = document.getElementById('survey3-link-btn');
+  const s4Btn = document.getElementById('survey4-link-btn');
+  if (s1Btn) s1Btn.href = surveyUrls.survey1;
+  if (s2Btn) s2Btn.href = surveyUrls.survey2;
+  if (s3Btn) s3Btn.href = surveyUrls.survey3;
+  if (s4Btn) s4Btn.href = surveyUrls.survey4;
 
-  // 初回アンケート完了後は通知設定を表示 (待機中・TGT期ともに利用可能)
+  // 初回アンケート完了後は通知設定を表示 (待機中・介入開始時・TGT期ともに利用可能)
   if (notificationCard) {
     if (phaseInfo.phase !== 'baseline') {
       notificationCard.classList.remove('hidden');
@@ -353,27 +371,39 @@ async function updateRecordView() {
 
   // 1. 初回アンケート①未回答時
   if (phaseInfo.phase === 'baseline') {
-    initialSurveyCard.classList.remove('hidden');
-    waitingCard.classList.add('hidden');
-    tgtMainWrapper.classList.add('hidden');
+    if (initialSurveyCard) initialSurveyCard.classList.remove('hidden');
+    if (waitingCard) waitingCard.classList.add('hidden');
+    if (interventionSurveyCard) interventionSurveyCard.classList.add('hidden');
+    if (tgtMainWrapper) tgtMainWrapper.classList.add('hidden');
     return;
   }
 
   // 2. 7日間待機期間中
   if (phaseInfo.phase === 'waiting') {
-    initialSurveyCard.classList.add('hidden');
-    waitingCard.classList.remove('hidden');
-    tgtMainWrapper.classList.add('hidden');
+    if (initialSurveyCard) initialSurveyCard.classList.add('hidden');
+    if (waitingCard) waitingCard.classList.remove('hidden');
+    if (interventionSurveyCard) interventionSurveyCard.classList.add('hidden');
+    if (tgtMainWrapper) tgtMainWrapper.classList.add('hidden');
 
     document.getElementById('waiting-days-left').innerText = `あと ${phaseInfo.daysLeft} 日`;
     document.getElementById('waiting-start-date').innerText = `開始予定日: ${phaseInfo.startDateFormatted}`;
     return;
   }
 
-  // 3. TGT介入期 (または全完了時)
-  initialSurveyCard.classList.add('hidden');
-  waitingCard.classList.add('hidden');
-  tgtMainWrapper.classList.remove('hidden');
+  // 3. 介入開始時アンケート②未回答時 (1日目記入直前)
+  if (phaseInfo.phase === 'pre_intervention') {
+    if (initialSurveyCard) initialSurveyCard.classList.add('hidden');
+    if (waitingCard) waitingCard.classList.add('hidden');
+    if (interventionSurveyCard) interventionSurveyCard.classList.remove('hidden');
+    if (tgtMainWrapper) tgtMainWrapper.classList.add('hidden');
+    return;
+  }
+
+  // 4. TGT介入期 (または全完了時)
+  if (initialSurveyCard) initialSurveyCard.classList.add('hidden');
+  if (waitingCard) waitingCard.classList.add('hidden');
+  if (interventionSurveyCard) interventionSurveyCard.classList.add('hidden');
+  if (tgtMainWrapper) tgtMainWrapper.classList.remove('hidden');
 
   if (phaseInfo.isMidtermDay) {
     midtermBanner.classList.remove('hidden');
@@ -495,7 +525,7 @@ async function updateCompleteView() {
   const finalSurveyCard = document.getElementById('final-survey-card');
   const thanksCard = document.getElementById('all-complete-thanks-card');
 
-  if (phaseData.survey3_completed) {
+  if (phaseData.survey4_completed || phaseData.survey3_completed) {
     finalSurveyCard.classList.add('hidden');
     thanksCard.classList.remove('hidden');
   } else if (progress.completedDays >= 14 || phaseInfo.isFinalDay) {
@@ -548,9 +578,14 @@ async function updateAdminView() {
   let allRecords = [];
 
   // GoogleフォームURLを管理者フォームに反映
-  document.getElementById('url-survey-1').value = surveyUrls.survey1;
-  document.getElementById('url-survey-2').value = surveyUrls.survey2;
-  document.getElementById('url-survey-3').value = surveyUrls.survey3;
+  const u1 = document.getElementById('url-survey-1');
+  const u2 = document.getElementById('url-survey-2');
+  const u3 = document.getElementById('url-survey-3');
+  const u4 = document.getElementById('url-survey-4');
+  if (u1) u1.value = surveyUrls.survey1;
+  if (u2) u2.value = surveyUrls.survey2;
+  if (u3) u3.value = surveyUrls.survey3;
+  if (u4) u4.value = surveyUrls.survey4;
 
   if (supabase) {
     // Supabaseから全ユーザーと全レコードをロード
@@ -617,10 +652,11 @@ async function updateAdminView() {
               <option value="">🧪 テスト用フェーズ変更</option>
               <option value="baseline">1. 初回アンケート①未回答</option>
               <option value="waiting">2. 待機中 (あと7日)</option>
-              <option value="tgt1">3. TGT1日目</option>
-              <option value="tgt7">4. TGT7日目 (中間アンケート②表示)</option>
-              <option value="tgt14">5. TGT14日目 (事後アンケート③表示)</option>
-              <option value="complete">6. 全工程完了感謝表示</option>
+              <option value="pre_intervention">3. 介入開始時アンケート②未回答 (1日目記入前)</option>
+              <option value="tgt1">4. TGT1日目</option>
+              <option value="tgt7">5. TGT7日目 (中間アンケート③表示)</option>
+              <option value="tgt14">6. TGT14日目 (事後アンケート④表示)</option>
+              <option value="complete">7. 全工程完了感謝表示</option>
             </select>
             <button class="btn btn-primary btn-sm login-as-user-btn" data-user="${userId}" style="font-size: 0.7rem; padding: 2px 6px;">ログイン</button>
           </div>
@@ -682,41 +718,57 @@ async function simulateUserPhase(userId, targetPhase) {
   let phaseData = {
     survey1_completed: true,
     survey1_date: todayStr,
-    survey3_completed: false
+    survey2_completed: true,
+    survey3_completed: false,
+    survey4_completed: false
   };
 
   if (targetPhase === 'baseline') {
     phaseData.survey1_completed = false;
     phaseData.survey1_date = null;
-    phaseData.survey3_completed = false;
+    phaseData.survey2_completed = false;
+    phaseData.survey4_completed = false;
   } else if (targetPhase === 'waiting') {
     phaseData.survey1_completed = true;
     phaseData.survey1_date = todayStr;
-    phaseData.survey3_completed = false;
+    phaseData.survey2_completed = false;
+    phaseData.survey4_completed = false;
+  } else if (targetPhase === 'pre_intervention') {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 7);
+    phaseData.survey1_completed = true;
+    phaseData.survey1_date = format(d);
+    phaseData.survey2_completed = false;
+    phaseData.survey4_completed = false;
   } else if (targetPhase === 'tgt1') {
     const d = new Date(today);
     d.setDate(d.getDate() - 7);
     phaseData.survey1_completed = true;
     phaseData.survey1_date = format(d);
-    phaseData.survey3_completed = false;
+    phaseData.survey2_completed = true;
+    phaseData.survey4_completed = false;
   } else if (targetPhase === 'tgt7') {
     const d = new Date(today);
     d.setDate(d.getDate() - 13);
     phaseData.survey1_completed = true;
     phaseData.survey1_date = format(d);
-    phaseData.survey3_completed = false;
+    phaseData.survey2_completed = true;
+    phaseData.survey4_completed = false;
   } else if (targetPhase === 'tgt14') {
     const d = new Date(today);
     d.setDate(d.getDate() - 20);
     phaseData.survey1_completed = true;
     phaseData.survey1_date = format(d);
-    phaseData.survey3_completed = false;
+    phaseData.survey2_completed = true;
+    phaseData.survey4_completed = false;
   } else if (targetPhase === 'complete') {
     const d = new Date(today);
     d.setDate(d.getDate() - 21);
     phaseData.survey1_completed = true;
     phaseData.survey1_date = format(d);
+    phaseData.survey2_completed = true;
     phaseData.survey3_completed = true;
+    phaseData.survey4_completed = true;
   }
 
   saveUserPhaseData(userId, phaseData);
@@ -1431,18 +1483,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 事後アンケート③完了ボタン
-  const survey3Btn = document.getElementById('survey3-complete-btn');
-  if (survey3Btn) {
-    survey3Btn.addEventListener('click', async () => {
+  // 介入開始時アンケート②完了ボタン
+  const survey2Btn = document.getElementById('survey2-complete-btn');
+  if (survey2Btn) {
+    survey2Btn.addEventListener('click', async () => {
       const userId = state.currentUser;
       if (!userId) return;
 
       const phaseData = await getUserPhaseData(userId);
+      phaseData.survey2_completed = true;
+      await saveUserPhaseData(userId, phaseData);
+
+      showToast('介入開始時アンケート②の回答を完了しました！');
+      await updateRecordView();
+    });
+  }
+
+  // 事後アンケート④完了ボタン
+  const survey4Btn = document.getElementById('survey4-complete-btn') || document.getElementById('survey3-complete-btn');
+  if (survey4Btn) {
+    survey4Btn.addEventListener('click', async () => {
+      const userId = state.currentUser;
+      if (!userId) return;
+
+      const phaseData = await getUserPhaseData(userId);
+      phaseData.survey4_completed = true;
       phaseData.survey3_completed = true;
       await saveUserPhaseData(userId, phaseData);
 
-      showToast('事後アンケート③の回答を完了しました！お疲れ様でした。');
+      showToast('事後アンケート④の回答を完了しました！お疲れ様でした。');
       await updateCompleteView();
     });
   }
@@ -1465,19 +1534,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     const url1Input = document.getElementById('url-survey-1');
     const url2Input = document.getElementById('url-survey-2');
     const url3Input = document.getElementById('url-survey-3');
+    const url4Input = document.getElementById('url-survey-4');
     if (url1Input) url1Input.value = surveyUrls.survey1;
     if (url2Input) url2Input.value = surveyUrls.survey2;
     if (url3Input) url3Input.value = surveyUrls.survey3;
+    if (url4Input) url4Input.value = surveyUrls.survey4;
 
     adminUrlsForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      surveyUrls.survey1 = document.getElementById('url-survey-1').value.trim();
-      surveyUrls.survey2 = document.getElementById('url-survey-2').value.trim();
-      surveyUrls.survey3 = document.getElementById('url-survey-3').value.trim();
+      surveyUrls.survey1 = (document.getElementById('url-survey-1')?.value || '').trim();
+      surveyUrls.survey2 = (document.getElementById('url-survey-2')?.value || '').trim();
+      surveyUrls.survey3 = (document.getElementById('url-survey-3')?.value || '').trim();
+      surveyUrls.survey4 = (document.getElementById('url-survey-4')?.value || '').trim();
       localStorage.setItem('tgt_survey_urls', JSON.stringify(surveyUrls));
       localStorage.setItem('tgt_survey1_url', surveyUrls.survey1);
       localStorage.setItem('tgt_survey2_url', surveyUrls.survey2);
       localStorage.setItem('tgt_survey3_url', surveyUrls.survey3);
+      localStorage.setItem('tgt_survey4_url', surveyUrls.survey4);
       showToast('アンケートURLを保存しました。');
     });
   }
@@ -1500,7 +1573,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 通知設定（メイン＆待機共通イベント）
+  // 通知設定イベント
   const notifToggle = document.getElementById('notification-toggle');
   if (notifToggle) {
     notifToggle.addEventListener('click', () => {
@@ -1516,23 +1589,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  const enableNotifBtnWaiting = document.getElementById('enable-notification-btn-waiting');
-  if (enableNotifBtnWaiting) {
-    enableNotifBtnWaiting.addEventListener('click', async () => {
-      await requestNotificationPermission();
-    });
-  }
-
   const testNotifBtn = document.getElementById('test-notification-btn');
   if (testNotifBtn) {
     testNotifBtn.addEventListener('click', () => {
-      sendTestNotification();
-    });
-  }
-
-  const testNotifBtnWaiting = document.getElementById('test-notification-btn-waiting');
-  if (testNotifBtnWaiting) {
-    testNotifBtnWaiting.addEventListener('click', () => {
       sendTestNotification();
     });
   }
@@ -1542,19 +1601,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveTimeBtn.addEventListener('click', () => {
       const timeVal = document.getElementById('notification-time').value || '20:00';
       localStorage.setItem('tgt_notify_time', timeVal);
-      const timeWaiting = document.getElementById('notification-time-waiting');
-      if (timeWaiting) timeWaiting.value = timeVal;
-      showToast(`通知時間を ${timeVal} に設定しました。`);
-    });
-  }
-
-  const saveTimeBtnWaiting = document.getElementById('save-time-btn-waiting');
-  if (saveTimeBtnWaiting) {
-    saveTimeBtnWaiting.addEventListener('click', () => {
-      const timeVal = document.getElementById('notification-time-waiting').value || '20:00';
-      localStorage.setItem('tgt_notify_time', timeVal);
-      const timeMain = document.getElementById('notification-time');
-      if (timeMain) timeMain.value = timeVal;
       showToast(`通知時間を ${timeVal} に設定しました。`);
     });
   }
@@ -1615,7 +1661,6 @@ async function requestNotificationPermission() {
 // 通知設定の表示UI更新ヘルパー
 function updateNotificationStatusUI() {
   const statusEl = document.getElementById('notification-status');
-  const statusWaitingEl = document.getElementById('notification-status-waiting');
 
   let msg = '※ 通知を有効にするには、ブラウザの通知許可が必要です。';
   if (!('Notification' in window)) {
@@ -1627,13 +1672,10 @@ function updateNotificationStatusUI() {
   }
 
   if (statusEl) statusEl.innerText = msg;
-  if (statusWaitingEl) statusWaitingEl.innerText = msg;
 
   const savedTime = localStorage.getItem('tgt_notify_time') || '20:00';
   const timeInputMain = document.getElementById('notification-time');
-  const timeInputWaiting = document.getElementById('notification-time-waiting');
   if (timeInputMain) timeInputMain.value = savedTime;
-  if (timeInputWaiting) timeInputWaiting.value = savedTime;
 }
 
 // テスト通知送信
