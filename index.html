@@ -44,7 +44,6 @@
           
           <div class="card-footer">
             <p class="notice">※ 事前に配布された参加者IDとパスワードを入力してください。</p>
-            <p class="admin-link-text">研究管理者の方は、ID「admin」でログインしてください。</p>
           </div>
         </div>
       </div>
@@ -173,6 +172,21 @@
           </button>
           <div class="progress-list-content collapsed" id="progress-list">
             <!-- 動的に生成されます -->
+          </div>
+        </div>
+
+        <!-- 記録対象日の選択カード (過去日記入・さかのぼり対応) -->
+        <div id="date-selector-card" class="paper-card date-selector-card mb-3">
+          <div class="date-selector-flex">
+            <label for="target-date-select" class="date-selector-label">
+              📅 記録する日付:
+            </label>
+            <select id="target-date-select" class="target-date-dropdown">
+              <!-- JSで動的に日付選択肢を生成 -->
+            </select>
+          </div>
+          <div id="target-date-badge" class="target-date-badge-box mt-2 text-center">
+            <span id="target-date-status-text" class="status-badge-text">📝 未記入の日の記録</span>
           </div>
         </div>
 

@@ -239,9 +239,18 @@ function formatDate(dateObj) {
   return `${y}年${m}月${d}日 (${day})`;
 }
 
-// 今日を表す日付文字列 (YYYY-MM-DD)
+// 午前4時ルールを考慮した論理上の現在Dateオブジェクトを取得
+function getLogicalTodayDate() {
+  const now = new Date();
+  if (now.getHours() < 4) {
+    now.setDate(now.getDate() - 1);
+  }
+  return now;
+}
+
+// 今日（論理的な今日：午前4時ルール適用）を表す日付文字列 (YYYY-MM-DD)
 function getTodayString() {
-  const today = new Date();
+  const today = getLogicalTodayDate();
   const y = today.getFullYear();
   const m = String(today.getMonth() + 1).padStart(2, '0');
   const d = String(today.getDate()).padStart(2, '0');
@@ -411,15 +420,115 @@ async function updateRecordView() {
     midtermBanner.classList.add('hidden');
   }
 
-  document.getElementById('current-date').innerText = formatDate(new Date());
+  document.getElementById('current-date').innerText = formatDate(getLogicalTodayDate());
 
   // クラウドまたはローカルから進捗データをロード
   const progress = await getParticipantProgress(userId);
+
+  // 記録対象日の選択ドロップダウンのセットアップ
+  setupTargetDateSelector(userId, progress);
 
   document.getElementById('progress-day').innerText = `${progress.currentDayNum}日目`;
   document.getElementById('progress-count').innerText = `${progress.completedDays} / 14日`;
   document.getElementById('progress-remaining').innerText = `あと${progress.remainingDays}日`;
   document.getElementById('progress-percentage').innerText = `${progress.percentage}%`;
+
+// グローバル選択日付
+let currentSelectedRecordDate = null;
+
+// 対象日付の選択肢ドロップダウンを生成
+function setupTargetDateSelector(userId, progress) {
+  const selectEl = document.getElementById('target-date-select');
+  if (!selectEl) return;
+
+  selectEl.innerHTML = '';
+  const signupDateStr = progress.signupDateStr;
+  const todayStr = getTodayString();
+  const userRecords = progress.userRecords || [];
+  const recordDateSet = new Set(userRecords.map(r => r.date));
+
+  const datesList = [];
+  const currentDayNum = progress.currentDayNum;
+
+  for (let i = 1; i <= currentDayNum; i++) {
+    const d = new Date(signupDateStr);
+    d.setDate(d.getDate() + (i - 1));
+    const dStr = d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+    datesList.push({ dayNum: i, dateStr: dStr, dateObj: d });
+  }
+
+  // 最新日付（今日）を一番上に
+  datesList.reverse();
+
+  if (!currentSelectedRecordDate || !datesList.some(item => item.dateStr === currentSelectedRecordDate)) {
+    currentSelectedRecordDate = todayStr;
+  }
+
+  datesList.forEach(item => {
+    const isCompleted = recordDateSet.has(item.dateStr);
+    const isToday = item.dateStr === todayStr;
+    const option = document.createElement('option');
+    option.value = item.dateStr;
+
+    const dateFormatted = `${item.dateObj.getMonth() + 1}/${item.dateObj.getDate()}`;
+    let label = `${item.dateStr} (Day ${item.dayNum})`;
+    if (isToday) label += ' 【今日】';
+    if (isCompleted) label += ' 💮記入済み';
+    else label += ' 📝未記入';
+
+    option.textContent = label;
+    if (item.dateStr === currentSelectedRecordDate) {
+      option.selected = true;
+    }
+    selectEl.appendChild(option);
+  });
+
+  loadRecordForSelectedDate(userId, currentSelectedRecordDate, progress);
+}
+
+// 選択された日付の記録をフォームに読み込む
+function loadRecordForSelectedDate(userId, dateStr, progress) {
+  currentSelectedRecordDate = dateStr;
+  const userRecords = progress ? progress.userRecords : (state.records[userId] || []);
+  const targetRecord = userRecords.find(r => r.date === dateStr);
+
+  const statusBadge = document.getElementById('target-date-status-text');
+  const saveBtn = document.getElementById('save-btn');
+  const todayStr = getTodayString();
+  const isToday = dateStr === todayStr;
+
+  if (targetRecord) {
+    document.getElementById('tgt-1').value = targetRecord.tgt1 || '';
+    document.getElementById('tgt-2').value = targetRecord.tgt2 || '';
+    document.getElementById('tgt-3').value = targetRecord.tgt3 || '';
+    document.getElementById('tgt-memo').value = targetRecord.memo || '';
+
+    const moodVal = targetRecord.mood || 3;
+    const moodRadio = document.querySelector(`input[name="mood"][value="${moodVal}"]`);
+    if (moodRadio) moodRadio.checked = true;
+
+    if (statusBadge) {
+      statusBadge.innerText = `💮 ${dateStr} の記録は保存済みです (編集・再保存が可能です)`;
+      statusBadge.className = 'status-badge-text completed';
+    }
+    if (saveBtn) saveBtn.innerText = `${dateStr} の記録を更新する`;
+  } else {
+    document.getElementById('tgt-1').value = '';
+    document.getElementById('tgt-2').value = '';
+    document.getElementById('tgt-3').value = '';
+    document.getElementById('tgt-memo').value = '';
+    const defaultMood = document.querySelector('input[name="mood"][value="3"]');
+    if (defaultMood) defaultMood.checked = true;
+
+    if (statusBadge) {
+      statusBadge.innerText = `📝 ${dateStr} ${isToday ? '（今日）' : ''}の記録を入力中`;
+      statusBadge.className = 'status-badge-text pending';
+    }
+    if (saveBtn) saveBtn.innerText = `${dateStr} の記録を保存する`;
+  }
+}
 
   // 14日間の進捗リストの生成
   const progressList = document.getElementById('progress-list');
@@ -1210,6 +1319,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('notification-settings').classList.toggle('collapsed');
   });
 
+  // 日付切り替えドロップダウンの変更ハンドラ
+  const targetDateSelectEl = document.getElementById('target-date-select');
+  if (targetDateSelectEl) {
+    targetDateSelectEl.addEventListener('change', async (e) => {
+      const selectedDate = e.target.value;
+      const userId = state.currentUser;
+      if (userId) {
+        const progress = await getParticipantProgress(userId);
+        loadRecordForSelectedDate(userId, selectedDate, progress);
+      }
+    });
+  }
+
   // 下書き自動保存
   const inputElements = ['tgt-1', 'tgt-2', 'tgt-3', 'tgt-memo'];
   inputElements.forEach(id => {
@@ -1237,7 +1359,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    const todayStr = getTodayString();
+    const targetDate = currentSelectedRecordDate || getTodayString();
     const timestampVal = Date.now();
 
     if (supabase) {
@@ -1247,7 +1369,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           .from('records')
           .upsert([{
             user_id: userId,
-            date: todayStr,
+            date: targetDate,
             timestamp: timestampVal,
             tgt1,
             tgt2,
@@ -1261,7 +1383,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           console.error(error);
           return;
         }
-        showToast('今日の記録をクラウドに保存しました。');
+        showToast(`${targetDate} の記録をクラウドに保存しました。`);
       } catch (err) {
         showToast('データベース接続エラーが発生しました。');
         console.error(err);
@@ -1273,9 +1395,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         state.records[userId] = [];
       }
 
-      const existingIndex = state.records[userId].findIndex(r => r.date === todayStr);
+      const existingIndex = state.records[userId].findIndex(r => r.date === targetDate);
       const newRecord = {
-        date: todayStr,
+        date: targetDate,
         timestamp: timestampVal,
         tgt1,
         tgt2,
@@ -1286,10 +1408,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (existingIndex >= 0) {
         state.records[userId][existingIndex] = newRecord;
-        showToast('今日の記録を更新しました。');
+        showToast(`${targetDate} の記録を更新しました。`);
       } else {
         state.records[userId].push(newRecord);
-        showToast('今日の記録を保存しました。');
+        showToast(`${targetDate} の記録を保存しました。`);
       }
       saveToLocalStorage();
     }

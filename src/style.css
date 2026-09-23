@@ -1353,3 +1353,65 @@ body {
   color: var(--color-text-main);
   cursor: pointer;
 }
+
+/* 日付選択カード（過去日さかのぼり入力対応） */
+.date-selector-card {
+  background: linear-gradient(135deg, #ffffff 0%, #fdfbf7 100%);
+  border: 1px solid var(--color-paper-border);
+  padding: 14px 18px;
+}
+
+.date-selector-flex {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.date-selector-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+  white-space: nowrap;
+}
+
+.target-date-dropdown {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-primary-dark);
+  background-color: #fcf9f2;
+  border: 1.5px solid var(--color-primary);
+  border-radius: var(--border-radius-sm);
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.target-date-dropdown:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px rgba(197, 160, 89, 0.2);
+}
+
+.status-badge-text {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 50px;
+}
+
+.status-badge-text.pending {
+  background-color: #fff8e1;
+  color: #f57f17;
+  border: 1px solid #ffe082;
+}
+
+.status-badge-text.completed {
+  background-color: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #a5d6a7;
+}
