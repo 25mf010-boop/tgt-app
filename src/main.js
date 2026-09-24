@@ -1756,9 +1756,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     userSideSelectComplete.addEventListener('change', handleUserSidePhaseChange);
   }
 
-  // 1分毎の未記録通知チェックタイマー
-  setInterval(checkDaily20OclockNotification, 60000);
-  checkDaily20OclockNotification();
+  // 1分毎の通知チェックタイマー（1日目昼12時スタート通知＆夜20時リマインド通知）
+  setInterval(checkScheduledNotifications, 60000);
+  checkScheduledNotifications();
 
 });
 
@@ -1812,40 +1812,51 @@ function sendTestNotification() {
   showToast('テスト通知を送信しました！');
 }
 
-// 20時リマインド通知の自動送信チェック
-async function checkDaily20OclockNotification() {
+// 各種定時通知の自動チェック（1日目昼12:00スタート通知＆毎日のリマインド通知）
+async function checkScheduledNotifications() {
   const userId = state.currentUser;
   if (!userId || state.isAdmin) return;
 
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
   const now = new Date();
-  const savedTime = localStorage.getItem('tgt_notify_time') || '20:00';
-  const [targetHour, targetMin] = savedTime.split(':').map(Number);
-  
   const currentHour = now.getHours();
   const currentMin = now.getMinutes();
 
-  // 設定時間（デフォルト20:00）以降かチェック
+  const phaseInfo = await getParticipantPhase(userId);
+  const progress = await getParticipantProgress(userId);
+
+  // 1. 待機明け1日目の昼12:00以降のスタート通知チェック
+  const isFirstDay = phaseInfo.phase === 'pre_intervention' || (phaseInfo.phase === 'tgt' && progress.currentDayNum === 1);
+  if (isFirstDay && currentHour >= 12) {
+    const startNotified = localStorage.getItem(`tgt_start_notified_${userId}`);
+    if (!startNotified) {
+      new Notification('🎉 今日の記録がスタートしました！', {
+        body: '7日間の待機期間お疲れ様でした！本日から14日間のTGT記録が始まります。まずは「介入開始時アンケート②」へのご回答をお願いします。',
+        tag: 'tgt-start-notification'
+      });
+      localStorage.setItem(`tgt_start_notified_${userId}`, 'true');
+    }
+  }
+
+  // 2. 毎日の夜のリマインド通知チェック (デフォルト20:00)
+  const savedTime = localStorage.getItem('tgt_notify_time') || '20:00';
+  const [targetHour, targetMin] = savedTime.split(':').map(Number);
+
   if (currentHour > targetHour || (currentHour === targetHour && currentMin >= targetMin)) {
     const todayStr = getTodayString();
     const alreadyNotified = localStorage.getItem(`tgt_notified_${userId}_${todayStr}`);
 
-    if (!alreadyNotified) {
-      const phaseInfo = await getParticipantPhase(userId);
-      // TGT介入期間中のみ通知
-      if (phaseInfo.phase === 'tgt') {
-        const progress = await getParticipantProgress(userId);
-        const hasTodayRecord = progress.userRecords.some(r => r.date === todayStr);
+    if (!alreadyNotified && phaseInfo.phase === 'tgt') {
+      const hasTodayRecord = progress.userRecords.some(r => r.date === todayStr);
 
-        // 本日の入力がまだないときだけ通知送信
-        if (!hasTodayRecord) {
-          new Notification('「今日はどんな1日でしたか？」', {
-            body: '1日を振り返って、良かった3つの出来事を記録してみましょう。',
-            tag: 'tgt-daily-reminder'
-          });
-          localStorage.setItem(`tgt_notified_${userId}_${todayStr}`, 'true');
-        }
+      // 本日の入力がまだないときだけ通知送信
+      if (!hasTodayRecord) {
+        new Notification('「今日はどんな1日でしたか？」', {
+          body: '1日を振り返って、良かった3つの出来事を記録してみましょう。',
+          tag: 'tgt-daily-reminder'
+        });
+        localStorage.setItem(`tgt_notified_${userId}_${todayStr}`, 'true');
       }
     }
   }
