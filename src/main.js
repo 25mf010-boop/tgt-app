@@ -1404,7 +1404,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tgt2 = document.getElementById('tgt-2').value.trim();
     const tgt3 = document.getElementById('tgt-3').value.trim();
     const memo = document.getElementById('tgt-memo').value.trim();
-    const mood = parseInt(document.querySelector('input[name="mood"]:checked').value);
+
+    const moodRadio = document.querySelector('input[name="mood"]:checked');
+    const mood = moodRadio ? parseInt(moodRadio.value) : 3;
 
     if (!tgt1) {
       showToast('よかったこと1は入力必須です。');
@@ -1414,9 +1416,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const targetDate = currentSelectedRecordDate || getTodayString();
     const timestampVal = Date.now();
 
-    if (supabase) {
-      // Supabaseへの保存 (upsert)
-      try {
+    const saveBtn = document.getElementById('save-btn');
+    if (saveBtn) saveBtn.disabled = true;
+
+    try {
+      if (supabase) {
+        // Supabaseへの保存 (upsert)
         const { error } = await supabase
           .from('records')
           .upsert([{
@@ -1433,45 +1438,48 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (error) {
           showToast('データベースへの保存に失敗しました。');
           console.error(error);
+          if (saveBtn) saveBtn.disabled = false;
           return;
         }
-        showToast(`${targetDate} の記録をクラウドに保存しました。`);
-      } catch (err) {
-        showToast('データベース接続エラーが発生しました。');
-        console.error(err);
-        return;
-      }
-    } else {
-      // 従来のローカル保存
-      if (!state.records[userId]) {
-        state.records[userId] = [];
-      }
-
-      const existingIndex = state.records[userId].findIndex(r => r.date === targetDate);
-      const newRecord = {
-        date: targetDate,
-        timestamp: timestampVal,
-        tgt1,
-        tgt2,
-        tgt3,
-        memo,
-        mood
-      };
-
-      if (existingIndex >= 0) {
-        state.records[userId][existingIndex] = newRecord;
-        showToast(`${targetDate} の記録を更新しました。`);
+        showToast(`${targetDate} の記録を保存しました！`);
       } else {
-        state.records[userId].push(newRecord);
-        showToast(`${targetDate} の記録を保存しました。`);
+        // 従来のローカル保存
+        if (!state.records[userId]) {
+          state.records[userId] = [];
+        }
+
+        const existingIndex = state.records[userId].findIndex(r => r.date === targetDate);
+        const newRecord = {
+          date: targetDate,
+          timestamp: timestampVal,
+          tgt1,
+          tgt2,
+          tgt3,
+          memo,
+          mood
+        };
+
+        if (existingIndex >= 0) {
+          state.records[userId][existingIndex] = newRecord;
+          showToast(`${targetDate} の記録を更新しました！`);
+        } else {
+          state.records[userId].push(newRecord);
+          showToast(`${targetDate} の記録を保存しました！`);
+        }
+        saveToLocalStorage();
       }
-      saveToLocalStorage();
+
+      clearDraft(userId);
+
+      // 完了画面へ遷移して表示更新
+      showView('complete-view');
+      await updateCompleteView();
+    } catch (err) {
+      console.error('Record save error:', err);
+      showToast('保存中にエラーが発生しました。もう一度お試しください。');
+    } finally {
+      if (saveBtn) saveBtn.disabled = false;
     }
-
-    clearDraft(userId);
-
-    showView('complete-view');
-    await updateCompleteView();
   });
 
   // 完了画面から「今日の記録画面へ」戻るボタン
