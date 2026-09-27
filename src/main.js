@@ -67,7 +67,7 @@ async function getUserPhaseData(userId) {
 
   if (supabase) {
     try {
-      // 1. user_phases テーブルからの読み込みを試行
+      // Supabase の user_phases テーブルから被験者の実際のアンケート完了ステータスを取得
       const { data: cloudPhase } = await supabase
         .from('user_phases')
         .select('*')
@@ -80,21 +80,6 @@ async function getUserPhaseData(userId) {
         localData.survey2_completed = cloudPhase.survey2_completed ?? localData.survey2_completed;
         localData.survey3_completed = cloudPhase.survey3_completed ?? localData.survey3_completed;
         localData.survey4_completed = cloudPhase.survey4_completed ?? localData.survey4_completed;
-      }
-
-      // 2. users テーブルの signup_date をフォールバック確認
-      const { data: userData } = await supabase
-        .from('users')
-        .select('signup_date')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (userData && userData.signup_date) {
-        // signup_date が存在する場合は初回アンケート完了と判定
-        localData.survey1_completed = true;
-        if (!localData.survey1_date) {
-          localData.survey1_date = userData.signup_date;
-        }
       }
     } catch (err) {
       console.warn("user_phases Cloud sync warning:", err);
@@ -110,19 +95,6 @@ async function saveUserPhaseData(userId, data) {
   localStorage.setItem('tgt_user_phases', JSON.stringify(allPhases));
 
   if (supabase) {
-    // 1. users テーブルの signup_date を即時更新（初回アンケート完了日として記憶）
-    if (data.survey1_completed && data.survey1_date) {
-      try {
-        await supabase
-          .from('users')
-          .update({ signup_date: data.survey1_date })
-          .eq('id', userId);
-      } catch (err) {
-        console.warn("users signup_date update warning:", err);
-      }
-    }
-
-    // 2. user_phases テーブルヘの書き込みを試行
     try {
       const payload = {
         user_id: userId,
@@ -145,16 +117,8 @@ async function getParticipantPhase(userId) {
   const progress = await getParticipantProgress(userId);
   const phaseData = await getUserPhaseData(userId);
 
-  // スマートフォールバック: すでに記録が1件以上存在する場合は初回アンケート完了とみなす
-  if (!phaseData.survey1_completed && progress.userRecords && progress.userRecords.length > 0) {
-    phaseData.survey1_completed = true;
-    if (!phaseData.survey1_date) {
-      const sortedDates = progress.userRecords.map(r => r.date).sort();
-      phaseData.survey1_date = sortedDates[0];
-    }
-  }
-
   // 1. 初回アンケート①未完了 ➔ "baseline" (初回アンケート期)
+  // survey1_completed が false の場合はアカウント作成日に関わらず絶対未回答
   if (!phaseData.survey1_completed) {
     return {
       phase: 'baseline',
@@ -387,14 +351,9 @@ async function getParticipantProgress(userId) {
     userRecords = state.records[userId] || [];
   }
 
-  // 1日目の開始基準日: 過去記録がある場合は最も古い記録の日付、未記録の場合は今日
-  let startDateStr = signupDateStr;
-  if (userRecords.length > 0) {
-    const sortedDates = userRecords.map(r => r.date).sort();
-    startDateStr = sortedDates[0];
-  } else {
-    startDateStr = getTodayString();
-  }
+  // 1日目の開始基準日: 初回アンケート①完了日(survey1_date) ➔ 最古の記録日 ➔ 初回アンケート完了前は今日
+  const phaseData = await getUserPhaseData(userId);
+  let startDateStr = phaseData.survey1_date || (userRecords.length > 0 ? userRecords.map(r => r.date).sort()[0] : getTodayString());
 
   const todayStr = getTodayString();
   const diffDays = getDaysBetween(startDateStr, todayStr);
