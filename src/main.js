@@ -829,42 +829,44 @@ async function updateAdminView() {
   if (u3) u3.value = surveyUrls.survey3;
   if (u4) u4.value = surveyUrls.survey4;
 
+  // 不要な旧ダミーID (A001〜A024) を state.users から完全除去
+  if (state.users) {
+    Object.keys(state.users).forEach(id => {
+      if (/^A\d{3}$/i.test(id)) delete state.users[id];
+    });
+  }
+
   const userMap = new Map();
   let mergedRecords = [];
 
   // 元の Supabase クラウドデータベースからロード
   if (supabase) {
     try {
-      const { data: uData, error: uErr } = await supabase.from('users').select('*');
-      const { data: rData, error: rErr } = await supabase.from('records').select('*');
+      const { data: uData } = await supabase.from('users').select('*');
+      const { data: rData } = await supabase.from('records').select('*');
 
       if (uData && uData.length > 0) {
-        uData.forEach(u => userMap.set(u.id, u));
+        // A001〜A024 を除外して登録
+        uData.filter(u => !/^A\d{3}$/i.test(u.id)).forEach(u => userMap.set(u.id, u));
       }
       if (rData && rData.length > 0) {
-        mergedRecords.push(...rData);
+        mergedRecords.push(...rData.filter(r => !/^A\d{3}$/i.test(r.user_id)));
       }
     } catch (err) {
       console.warn("Original Supabase fetch warning:", err);
     }
+  } else {
+    // オフライン時のみローカルストレージからマージ
+    Object.keys(state.users || {}).forEach(id => {
+      if (!/^A\d{3}$/i.test(id) && !userMap.has(id)) {
+        userMap.set(id, {
+          id,
+          password: state.users[id].password || 'pass123',
+          signup_date: state.users[id].signupDate || null
+        });
+      }
+    });
   }
-
-  // ローカルストレージに保持されている24名の全被験者をマージ補填
-  Object.keys(state.users || {}).forEach(id => {
-    if (!userMap.has(id)) {
-      userMap.set(id, {
-        id,
-        password: state.users[id].password || 'pass123',
-        signup_date: state.users[id].signupDate || getTodayString()
-      });
-    }
-  });
-
-  Object.values(state.records || {}).forEach(userRecs => {
-    if (Array.isArray(userRecs)) {
-      mergedRecords.push(...userRecs);
-    }
-  });
 
   userList = Array.from(userMap.values());
   allRecords = mergedRecords;
@@ -1389,39 +1391,124 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 被験者24名 (A001〜A024) および apple アカウントの完全保護・自動補填
-  const demoUsers = JSON.parse(localStorage.getItem('tgt_users')) || {};
-  const now = new Date();
-  const format = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  const todayStr = format(now);
-  const yesterday = new Date();
-  yesterday.setDate(now.getDate() - 1);
-  const yesterdayStr = format(yesterday);
+  // 研究公式 24名の被験者アカウントリスト（スケジュール表と完全一致）
+  const OFFICIAL_PARTICIPANTS = [
+    { id: 'apple', password: 'p12', survey1_date: '2026-09-24', completed: true },
+    { id: 'cloud', password: 'n83', survey1_date: '2026-09-24', completed: true },
+    { id: 'lemon', password: 't85', survey1_date: '2026-09-25', completed: true },
+    { id: 'forest', password: 'f28', survey1_date: '2026-09-25', completed: true },
+    { id: 'sunny', password: 'w17', survey1_date: '2026-09-25', completed: true },
+    { id: 'moon', password: 'y61', survey1_date: '2026-09-26', completed: true },
+    { id: 'peach', password: 'a34', survey1_date: '2026-09-28', completed: false },
+    { id: 'cherry', password: 'm70', survey1_date: '2026-09-28', completed: false },
+    { id: 'melon', password: 's09', survey1_date: '2026-09-28', completed: false },
+    { id: 'river', password: 'k41', survey1_date: '2026-09-28', completed: false },
+    { id: 'star', password: 'h39', survey1_date: '2026-09-28', completed: false },
+    { id: 'pearl', password: 'j37', survey1_date: '2026-09-28', completed: false },
+    { id: 'breeze', password: 'e45', survey1_date: '2026-09-29', completed: false },
+    { id: 'maple', password: 'v78', survey1_date: '2026-09-29', completed: false },
+    { id: 'flower', password: 'b92', survey1_date: '2026-09-30', completed: false },
+    { id: 'clover', password: 'c54', survey1_date: '2026-09-30', completed: false },
+    { id: 'ocean', password: 'r63', survey1_date: '2026-09-30', completed: false },
+    { id: 'olive', password: 'd26', survey1_date: '2026-09-30', completed: false },
+    { id: 'amber', password: 'g90', survey1_date: '2026-09-30', completed: false },
+    { id: 'coral', password: 'z51', survey1_date: '2026-10-06', completed: false },
+    { id: 'rose', password: 'q64', survey1_date: '2026-10-06', completed: false },
+    { id: 'mint', password: 'x23', survey1_date: '2026-10-06', completed: false },
+    { id: 'pine', password: 'u76', survey1_date: '2026-10-06', completed: false },
+    { id: 'stone', password: 'v48', survey1_date: '2026-10-06', completed: false }
+  ];
 
-  // 24名の研究参加者 (A001〜A024) および apple を完全防護
-  const participantIds = ['apple', ...Array.from({ length: 24 }, (_, i) => `A${String(i + 1).padStart(3, '0')}`)];
-  participantIds.forEach(id => {
-    if (!demoUsers[id]) {
-      demoUsers[id] = { password: 'pass123', signupDate: todayStr };
+  // 1. ローカルストレージのクリーンアップ（不要な A001〜A024 アカウントおよびデータを削除）
+  const demoUsers = JSON.parse(localStorage.getItem('tgt_users')) || {};
+  Object.keys(demoUsers).forEach(id => {
+    if (/^A\d{3}$/i.test(id)) {
+      delete demoUsers[id];
     }
   });
 
+  // 公式被験者アカウントの同期（指定パスワードのセット）
+  OFFICIAL_PARTICIPANTS.forEach(p => {
+    demoUsers[p.id] = {
+      password: p.password,
+      signupDate: p.completed ? p.survey1_date : (demoUsers[p.id]?.signupDate || p.survey1_date)
+    };
+  });
   localStorage.setItem('tgt_users', JSON.stringify(demoUsers));
 
-  const demoRecords = JSON.parse(localStorage.getItem('tgt_records')) || {};
-  demoRecords['A001'] = []; // A001は新規アカウントのため記録なし
-  demoRecords['A002'] = [
-    {
-      date: yesterdayStr,
-      timestamp: Date.now() - 24 * 60 * 60 * 1000,
-      tgt1: '昨日は美味しいお茶が飲めた',
-      tgt2: '仕事が順調に終わった',
-      tgt3: '',
-      memo: 'いいスタート！',
-      mood: 4
+  // 不要な A001〜A024 のローカル記録・フェーズも削除
+  const localRecords = JSON.parse(localStorage.getItem('tgt_records')) || {};
+  Object.keys(localRecords).forEach(id => {
+    if (/^A\d{3}$/i.test(id)) delete localRecords[id];
+  });
+  localStorage.setItem('tgt_records', JSON.stringify(localRecords));
+
+  const localPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
+  Object.keys(localPhases).forEach(id => {
+    if (/^A\d{3}$/i.test(id)) delete localPhases[id];
+  });
+  localStorage.setItem('tgt_user_phases', JSON.stringify(localPhases));
+
+  // 2. Supabaseクラウドデータベースの同期・クリーンアップ
+  if (supabase) {
+    try {
+      // (1) クラウド上の不要な A001〜A024 ダミーアカウントをクリーン削除
+      const dummyIds = Array.from({ length: 24 }, (_, i) => `A${String(i + 1).padStart(3, '0')}`);
+      await supabase.from('users').delete().in('id', dummyIds);
+      await supabase.from('user_phases').delete().in('user_id', dummyIds);
+      await supabase.from('records').delete().in('user_id', dummyIds);
+
+      // (2) 公式24名の被験者アカウント (users テーブルへの登録・補填 & appleの開始日を2026-09-24に設定)
+      const { data: existingUsers } = await supabase.from('users').select('id, password, signup_date');
+      const existingMap = new Map((existingUsers || []).map(u => [String(u.id).toLowerCase(), u]));
+
+      for (const p of OFFICIAL_PARTICIPANTS) {
+        const existing = existingMap.get(p.id.toLowerCase());
+        const initialDate = p.id === 'apple' ? '2026-09-24' : null;
+
+        if (!existing) {
+          await supabase.from('users').insert([{ id: p.id, password: p.password, signup_date: initialDate }]);
+        } else {
+          const updatePayload = {};
+          if (existing.password !== p.password) updatePayload.password = p.password;
+          if (p.id === 'apple' && existing.signup_date !== '2026-09-24') updatePayload.signup_date = '2026-09-24';
+          if (Object.keys(updatePayload).length > 0) {
+            await supabase.from('users').update(updatePayload).eq('id', existing.id || p.id);
+          }
+        }
+      }
+
+      // (3) 公式24名全員の user_phases クラウドテーブルを一括事前生成・同期
+      const { data: existingPhases } = await supabase.from('user_phases').select('user_id, id');
+      const phaseSet = new Set((existingPhases || []).map(ph => String(ph.user_id).toLowerCase()));
+
+      for (const p of OFFICIAL_PARTICIPANTS) {
+        const targetDate = p.id === 'apple' ? '2026-09-24' : null;
+        const isCompleted = !!targetDate;
+
+        if (!phaseSet.has(p.id.toLowerCase())) {
+          await supabase.from('user_phases').insert([{
+            user_id: p.id,
+            survey1_completed: isCompleted,
+            survey1_date: targetDate,
+            survey2_completed: false,
+            survey3_completed: false,
+            survey4_completed: false,
+            updated_at: new Date().toISOString()
+          }]);
+        } else if (p.id === 'apple') {
+          // apple の日付を 2026-09-24 に補正
+          await supabase.from('user_phases').update({
+            survey1_completed: true,
+            survey1_date: '2026-09-24',
+            updated_at: new Date().toISOString()
+          }).eq('user_id', 'apple');
+        }
+      }
+    } catch (seedErr) {
+      console.warn("Participant sync & cleanup warning:", seedErr);
     }
-  ];
-  localStorage.setItem('tgt_records', JSON.stringify(demoRecords));
+  }
 
   loadFromLocalStorage();
 
@@ -1450,7 +1537,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- イベントリスナー ---
 
-  // ログインフォーム送信 (非同期処理に書き換え)
+  // ログインフォーム送信 (非同形・あいまい大文字小文字対応)
   document.getElementById('login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const userIdInput = document.getElementById('login-id').value.trim();
@@ -1458,7 +1545,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (!userIdInput || !passwordInput) return;
 
-    if (userIdInput === 'admin') {
+    if (userIdInput.toLowerCase() === 'admin') {
       if (passwordInput === 'admin123') {
         state.currentUser = 'admin';
         state.isAdmin = true;
@@ -1472,27 +1559,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    let authenticatedUserId = userIdInput;
+
     if (supabase) {
-      // Supabaseを使用したログインフロー
+      // Supabaseを使用したログインフロー (大文字・小文字表記ブレ吸収 ilike 検索)
       try {
         const { data: user, error } = await supabase
           .from('users')
           .select('*')
-          .eq('id', userIdInput)
-          .single();
+          .ilike('id', userIdInput)
+          .maybeSingle();
 
-        if (error && error.code === 'PGRST116') {
+        if (!user) {
           showToast('被験者IDまたはパスワードが正しくありません。');
           return;
-        } else if (user) {
+        } else {
           if (user.password !== passwordInput) {
             showToast('被験者IDまたはパスワードが正しくありません。');
             return;
           }
+          authenticatedUserId = user.id; // クラウドに保存されている正確な正規IDをセット
           showToast('ログインしました。');
-        } else {
-          showToast('ログイン処理中にエラーが発生しました。');
-          return;
         }
       } catch (err) {
         showToast('データベース接続エラーが発生しました。');
@@ -1501,21 +1588,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } else {
       // 従来のローカルログインフロー
-      const existingUser = state.users[userIdInput];
-      if (!existingUser) {
+      const existingKey = Object.keys(state.users).find(k => k.toLowerCase() === userIdInput.toLowerCase());
+      if (!existingKey) {
         showToast('被験者IDまたはパスワードが正しくありません。');
         return;
       }
-      if (existingUser.password !== passwordInput) {
+      if (state.users[existingKey].password !== passwordInput) {
         showToast('被験者IDまたはパスワードが正しくありません。');
         return;
       }
+      authenticatedUserId = existingKey;
       showToast('ログインしました。');
     }
 
-    state.currentUser = userIdInput;
+    state.currentUser = authenticatedUserId;
     state.isAdmin = false;
-    localStorage.setItem('tgt_current_user', JSON.stringify({ userId: userIdInput, isAdmin: false }));
+    localStorage.setItem('tgt_current_user', JSON.stringify({ userId: authenticatedUserId, isAdmin: false }));
 
     showView('record-view');
     await updateRecordView();
