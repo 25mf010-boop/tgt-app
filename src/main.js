@@ -50,28 +50,80 @@ function loadSurveyUrls() {
 }
 let surveyUrls = loadSurveyUrls();
 
-// ユーザーごとのフェーズ状態ヘルパー
-function getUserPhaseData(userId) {
-  const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
-  return allPhases[userId] || {
+// ユーザーごとのフェーズ状態ヘルパー（Supabaseクラウド同期対応）
+async function getUserPhaseData(userId) {
+  let localData = {
     survey1_completed: false,
     survey1_date: null,
     survey2_completed: false,
     survey3_completed: false,
     survey4_completed: false
   };
+
+  const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
+  if (allPhases[userId]) {
+    localData = { ...localData, ...allPhases[userId] };
+  }
+
+  if (supabase) {
+    try {
+      const { data: cloudPhase } = await supabase
+        .from('user_phases')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (cloudPhase) {
+        localData.survey1_completed = cloudPhase.survey1_completed ?? localData.survey1_completed;
+        localData.survey1_date = cloudPhase.survey1_date || localData.survey1_date;
+        localData.survey2_completed = cloudPhase.survey2_completed ?? localData.survey2_completed;
+        localData.survey3_completed = cloudPhase.survey3_completed ?? localData.survey3_completed;
+        localData.survey4_completed = cloudPhase.survey4_completed ?? localData.survey4_completed;
+      }
+    } catch (err) {
+      console.warn("user_phases Cloud sync warning:", err);
+    }
+  }
+
+  return localData;
 }
 
-function saveUserPhaseData(userId, data) {
+async function saveUserPhaseData(userId, data) {
   const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
   allPhases[userId] = { ...allPhases[userId], ...data };
   localStorage.setItem('tgt_user_phases', JSON.stringify(allPhases));
+
+  if (supabase) {
+    try {
+      const payload = {
+        user_id: userId,
+        survey1_completed: allPhases[userId].survey1_completed || false,
+        survey1_date: allPhases[userId].survey1_date || null,
+        survey2_completed: allPhases[userId].survey2_completed || false,
+        survey3_completed: allPhases[userId].survey3_completed || false,
+        survey4_completed: allPhases[userId].survey4_completed || false,
+        updated_at: new Date().toISOString()
+      };
+      await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' });
+    } catch (err) {
+      console.warn("user_phases Cloud save warning:", err);
+    }
+  }
 }
 
 // 被験者の現在の研究フェーズを取得する
 async function getParticipantPhase(userId) {
   const progress = await getParticipantProgress(userId);
-  const phaseData = getUserPhaseData(userId);
+  const phaseData = await getUserPhaseData(userId);
+
+  // スマートフォールバック: すでに記録が1件以上存在する場合は初回アンケート完了とみなす
+  if (!phaseData.survey1_completed && progress.userRecords && progress.userRecords.length > 0) {
+    phaseData.survey1_completed = true;
+    if (!phaseData.survey1_date) {
+      const sortedDates = progress.userRecords.map(r => r.date).sort();
+      phaseData.survey1_date = sortedDates[0];
+    }
+  }
 
   // 1. 初回アンケート①未完了 ➔ "baseline" (初回アンケート期)
   if (!phaseData.survey1_completed) {
