@@ -26,15 +26,27 @@ let state = {
   drafts: {},      // ローカル/クラウド共通: 下書き（常に端末ローカルに保存）
 };
 
+const DEFAULT_SURVEY_URLS = {
+  survey1: 'https://forms.gle/6neenACKZ4Nxs26a6', // ① 初回アンケート
+  survey2: 'https://forms.gle/2197caaQaUsnhHAm7', // ② 介入開始時アンケート
+  survey3: 'https://forms.gle/CLGAThX9uHh1HSbk9', // ③ 中間アンケート
+  survey4: 'https://forms.gle/netmLfrQxQieFrN86'  // ④ 事後アンケート
+};
+
 // 研究用GoogleフォームURL管理
 function loadSurveyUrls() {
   const savedUrls = JSON.parse(localStorage.getItem('tgt_survey_urls') || '{}');
-  return {
-    survey1: savedUrls.survey1 || localStorage.getItem('tgt_survey1_url') || 'https://forms.gle/6neenACKZ4Nxs26a6',
-    survey2: savedUrls.survey2 || localStorage.getItem('tgt_survey2_url') || 'https://forms.gle/2197caaQaUsnhHAm7',
-    survey3: savedUrls.survey3 || localStorage.getItem('tgt_survey3_url') || 'https://forms.gle/CLGAThX9uHh1HSbk9',
-    survey4: savedUrls.survey4 || localStorage.getItem('tgt_survey4_url') || 'https://forms.gle/netmLfrQxQieFrN86'
-  };
+  
+  let s1 = savedUrls.survey1 || DEFAULT_SURVEY_URLS.survey1;
+  let s2 = savedUrls.survey2;
+  // 旧キャッシュ (CLGAThX9uHh1HSbk9) が残っている場合は新URLに補正
+  if (!s2 || s2 === 'https://forms.gle/CLGAThX9uHh1HSbk9') {
+    s2 = DEFAULT_SURVEY_URLS.survey2;
+  }
+  let s3 = savedUrls.survey3 || DEFAULT_SURVEY_URLS.survey3;
+  let s4 = savedUrls.survey4 || DEFAULT_SURVEY_URLS.survey4;
+
+  return { survey1: s1, survey2: s2, survey3: s3, survey4: s4 };
 }
 let surveyUrls = loadSurveyUrls();
 
