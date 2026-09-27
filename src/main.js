@@ -105,7 +105,21 @@ async function saveUserPhaseData(userId, data) {
         survey4_completed: allPhases[userId].survey4_completed || false,
         updated_at: new Date().toISOString()
       };
-      await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' });
+
+      const { data: existing } = await supabase
+        .from('user_phases')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (existing && existing.id) {
+        await supabase.from('user_phases').update(payload).eq('id', existing.id);
+      } else {
+        const { error: insErr } = await supabase.from('user_phases').insert([payload]);
+        if (insErr) {
+          await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' });
+        }
+      }
     } catch (err) {
       console.warn("user_phases Cloud save warning:", err);
     }
@@ -786,6 +800,7 @@ async function updateAdminView() {
     const userId = user.id;
     const progress = await getParticipantProgress(userId);
     const phaseInfo = await getParticipantPhase(userId);
+    const phaseData = await getUserPhaseData(userId);
     const userRecs = progress.userRecords;
 
     let lastRecordTime = 'なし';
@@ -797,11 +812,18 @@ async function updateAdminView() {
       });
     }
 
+    const s1Date = phaseData.survey1_date || '';
+
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><strong>${userId}</strong></td>
       <td><code>${user.password || ''}</code></td>
-      <td><span class="phase-badge ${phaseInfo.badgeClass}">${phaseInfo.label}</span></td>
+      <td>
+        <span class="phase-badge ${phaseInfo.badgeClass}">${phaseInfo.label}</span>
+        <div style="font-size:0.7rem; color:var(--color-text-sub); margin-top:2px;">
+          ①完了日: ${phaseData.survey1_completed ? (s1Date || '記録あり') : '未回答'}
+        </div>
+      </td>
       <td>${progress.completedDays} / 14日 (${progress.percentage}%)</td>
       <td>🔥 ${progress.streak}日</td>
       <td>${lastRecordTime}</td>
@@ -811,6 +833,10 @@ async function updateAdminView() {
             <button class="btn btn-secondary btn-sm view-detail-btn" data-user="${userId}">詳細</button>
             <button class="btn-edit-sm edit-pw-btn" data-user="${userId}">編集</button>
             <button class="btn-danger-sm delete-user-btn" data-user="${userId}">削除</button>
+          </div>
+          <div style="display: flex; gap: 4px; align-items: center; margin-top: 2px;">
+            <input type="date" class="s1-date-input" data-user="${userId}" value="${s1Date || getTodayString()}" style="font-size:0.7rem; padding:1px 2px;" title="初回アンケート①回答完了日を設定" />
+            <button class="btn btn-sm btn-outline set-s1-date-btn" data-user="${userId}" style="font-size:0.65rem; padding:1px 4px;" title="アンケート①回答日をセットして待機カウントダウンを開始">①回答日保存</button>
           </div>
           <div style="display: flex; gap: 4px; align-items: center; margin-top: 2px;">
             <select class="phase-sim-select" data-user="${userId}" style="font-size: 0.7rem; padding: 2px;">
@@ -830,6 +856,23 @@ async function updateAdminView() {
     `;
     tbody.appendChild(tr);
   }
+
+  document.querySelectorAll('.set-s1-date-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const userId = e.target.getAttribute('data-user');
+      const inputEl = document.querySelector(`.s1-date-input[data-user="${userId}"]`);
+      if (!inputEl || !inputEl.value) return;
+
+      const selectedDate = inputEl.value;
+      const phaseData = await getUserPhaseData(userId);
+      phaseData.survey1_completed = true;
+      phaseData.survey1_date = selectedDate;
+      await saveUserPhaseData(userId, phaseData);
+
+      showToast(`被験者「${userId}」の初回アンケート①完了日を ${selectedDate} に保存しました！`);
+      await updateAdminView();
+    });
+  });
 
   document.querySelectorAll('.view-detail-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -936,7 +979,7 @@ async function simulateUserPhase(userId, targetPhase) {
     phaseData.survey4_completed = true;
   }
 
-  saveUserPhaseData(userId, phaseData);
+  await saveUserPhaseData(userId, phaseData);
   showToast(`被験者「${userId}」のステータスを更新しました。`);
   await updateAdminView();
 }
