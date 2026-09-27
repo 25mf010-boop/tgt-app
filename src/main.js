@@ -829,6 +829,35 @@ async function updateAdminView() {
 
       userList = usersData || [];
       allRecords = recsData || [];
+
+      // ローカルストレージにユーザーがあるのにSupabaseに無い場合、自動マイグレーションして復元
+      const localUserIds = Object.keys(state.users || {});
+      if (localUserIds.length > 0) {
+        const cloudUserMap = new Set(userList.map(u => u.id));
+        const missingUsers = [];
+
+        localUserIds.forEach(id => {
+          if (!cloudUserMap.has(id)) {
+            missingUsers.push({
+              id,
+              password: state.users[id].password || 'pass123',
+              signup_date: state.users[id].signupDate || getTodayString()
+            });
+          }
+        });
+
+        if (missingUsers.length > 0) {
+          try {
+            await supabase.from('users').upsert(missingUsers, { onConflict: 'id' });
+            const { data: refetchedUsers } = await supabase.from('users').select('*');
+            if (refetchedUsers) {
+              userList = refetchedUsers;
+            }
+          } catch (migErr) {
+            console.warn("Auto user migration warning:", migErr);
+          }
+        }
+      }
     } catch (err) {
       if (statusBox) {
         statusBox.innerHTML = `🔴 <strong>Supabase接続エラー:</strong> クラウド接続に失敗しました。<br><small style="color:var(--color-danger);">${err.message}</small>`;
