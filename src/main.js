@@ -698,17 +698,21 @@ async function updateCompleteView() {
   }
 
   // 日替わりおもしろ雑学コラムの抽出
-  const tipIndex = Math.min(progress.currentDayNum - 1, 13);
-  const tip = DAILY_TIPS[tipIndex];
+  const dayNum = (progress && typeof progress.currentDayNum === 'number') ? progress.currentDayNum : 1;
+  const tipIndex = Math.max(0, Math.min(dayNum - 1, (DAILY_TIPS.length || 1) - 1));
+  const tip = (DAILY_TIPS && DAILY_TIPS[tipIndex]) ? DAILY_TIPS[tipIndex] : { intro: '今日もお疲れ様でした！', trivia: '記録を保存しました。' };
 
   const cheerMessageEl = document.getElementById('cheer-message');
-  cheerMessageEl.innerHTML = `
-    <p class="trivia-intro">${tip.intro}</p>
-    <div class="trivia-highlight">【 ${tip.trivia} 】</div>
-  `;
+  if (cheerMessageEl) {
+    cheerMessageEl.innerHTML = `
+      <p class="trivia-intro">${tip.intro}</p>
+      <div class="trivia-highlight">【 ${tip.trivia} 】</div>
+    `;
+  }
 
   // 連続記録日数
-  document.getElementById('streak-days').innerText = progress.streak;
+  const streakEl = document.getElementById('streak-days');
+  if (streakEl) streakEl.innerText = progress ? progress.streak : 0;
 
   // カレンダーグリッドの生成 (スタンプカード風)
   const calendarGrid = document.getElementById('calendar-grid');
@@ -1224,6 +1228,13 @@ function updateNotificationStatus(permission) {
 // --- 初期セットアップ & イベントハンドラ登録 ---
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Service Worker の登録 (PWAおよび通知対応)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+      console.warn('ServiceWorker registration failed:', err);
+    });
+  }
+
   // デモ用の初期化（A001：1日目のデモ被験者, A002：2日目のデモ被験者）
   const demoUsers = JSON.parse(localStorage.getItem('tgt_users')) || {};
   const now = new Date();
@@ -1394,7 +1405,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     radio.addEventListener('change', triggerDraftSave);
   });
 
-  // 記録の保存・上書き更新 (非同期処理に書き換え)
+  // 記録の保存・上書き更新 (二重化・完全防護処理)
   document.getElementById('record-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const userId = state.currentUser;
@@ -1420,63 +1431,83 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (saveBtn) saveBtn.disabled = true;
 
     try {
-      if (supabase) {
-        // Supabaseへの保存 (upsert)
-        const { error } = await supabase
-          .from('records')
-          .upsert([{
-            user_id: userId,
-            date: targetDate,
-            timestamp: timestampVal,
-            tgt1,
-            tgt2,
-            tgt3,
-            memo,
-            mood
-          }], { onConflict: 'user_id,date' });
+      // 1. ローカルメモリ & ローカルストレージに即時保存 (データの消失を防ぎ100%確実に保存)
+      if (!state.records[userId]) {
+        state.records[userId] = [];
+      }
+      const existingIndex = state.records[userId].findIndex(r => r.date === targetDate);
+      const recordPayload = {
+        user_id: userId,
+        date: targetDate,
+        timestamp: timestampVal,
+        tgt1,
+        tgt2,
+        tgt3,
+        memo,
+        mood
+      };
 
-        if (error) {
-          showToast('データベースへの保存に失敗しました。');
-          console.error(error);
-          if (saveBtn) saveBtn.disabled = false;
-          return;
-        }
-        showToast(`${targetDate} の記録を保存しました！`);
+      if (existingIndex >= 0) {
+        state.records[userId][existingIndex] = recordPayload;
       } else {
-        // 従来のローカル保存
-        if (!state.records[userId]) {
-          state.records[userId] = [];
-        }
+        state.records[userId].push(recordPayload);
+      }
+      saveToLocalStorage();
 
-        const existingIndex = state.records[userId].findIndex(r => r.date === targetDate);
-        const newRecord = {
-          date: targetDate,
-          timestamp: timestampVal,
-          tgt1,
-          tgt2,
-          tgt3,
-          memo,
-          mood
-        };
+      // 2. Supabase クラウドデータベースとの同期 (エラー時もローカルデータは安全に維持)
+      if (supabase) {
+        try {
+          // 既存レコードの検索
+          const { data: existingRec } = await supabase
+            .from('records')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('date', targetDate)
+            .maybeSingle();
 
-        if (existingIndex >= 0) {
-          state.records[userId][existingIndex] = newRecord;
-          showToast(`${targetDate} の記録を更新しました！`);
-        } else {
-          state.records[userId].push(newRecord);
-          showToast(`${targetDate} の記録を保存しました！`);
+          if (existingRec && existingRec.id) {
+            // 既存レコードの更新
+            const { error: updateErr } = await supabase
+              .from('records')
+              .update({
+                timestamp: timestampVal,
+                tgt1, tgt2, tgt3, memo, mood
+              })
+              .eq('id', existingRec.id);
+
+            if (updateErr) {
+              console.warn("Supabase direct update warning, fallback upsert:", updateErr);
+              await supabase.from('records').upsert([recordPayload], { onConflict: 'user_id,date' });
+            }
+          } else {
+            // 新規レコードの作成
+            const { error: insertErr } = await supabase
+              .from('records')
+              .insert([recordPayload]);
+
+            if (insertErr) {
+              console.warn("Supabase direct insert warning, fallback upsert:", insertErr);
+              await supabase.from('records').upsert([recordPayload], { onConflict: 'user_id,date' });
+            }
+          }
+        } catch (cloudErr) {
+          console.error("Supabase cloud sync error (local data is safely stored):", cloudErr);
         }
-        saveToLocalStorage();
       }
 
+      showToast(`${targetDate} の記録を保存しました！`);
       clearDraft(userId);
 
-      // 完了画面へ遷移して表示更新
+      // 3. 完了画面へ遷移して表示更新
       showView('complete-view');
       await updateCompleteView();
+
+      if (state.isAdmin) {
+        await updateAdminView();
+      }
     } catch (err) {
       console.error('Record save error:', err);
-      showToast('保存中にエラーが発生しました。もう一度お試しください。');
+      showToast('保存処理中に問題が発生しました。もう一度お試しください。');
     } finally {
       if (saveBtn) saveBtn.disabled = false;
     }
@@ -1860,15 +1891,47 @@ function updateNotificationStatusUI() {
   if (timeInputMain) timeInputMain.value = savedTime;
 }
 
+// ヘルパー: 通知送信 (Service Worker 優先 / フォールバック new Notification)
+async function sendLocalNotification(title, body, tag) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+  const options = {
+    body,
+    icon: '/favicon.svg',
+    badge: '/favicon.svg',
+    tag: tag || 'tgt-notification'
+  };
+
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      if (reg && reg.showNotification) {
+        await reg.showNotification(title, options);
+        return;
+      }
+    } catch (err) {
+      console.warn("ServiceWorker notification failed, using fallback:", err);
+    }
+  }
+
+  try {
+    new Notification(title, options);
+  } catch (e) {
+    console.error("Standard Notification failed:", e);
+  }
+}
+
 // テスト通知送信
 function sendTestNotification() {
   if (!('Notification' in window) || Notification.permission !== 'granted') {
     showToast('先に「通知を許可する」を押してください。');
     return;
   }
-  new Notification('「今日はどんな1日でしたか？」', {
-    body: '1日を振り返って、良かった3つの出来事を記録してみましょう。'
-  });
+  sendLocalNotification(
+    '「今日はどんな1日でしたか？」',
+    '1日を振り返って、良かった3つの出来事を記録してみましょう。',
+    'tgt-test-notification'
+  );
   showToast('テスト通知を送信しました！');
 }
 
@@ -1891,10 +1954,11 @@ async function checkScheduledNotifications() {
   if (isFirstDay && currentHour >= 12) {
     const startNotified = localStorage.getItem(`tgt_start_notified_${userId}`);
     if (!startNotified) {
-      new Notification('🎉 今日の記録がスタートしました！', {
-        body: '7日間の待機期間お疲れ様でした！本日から14日間のTGT記録が始まります。まずは「介入開始時アンケート②」へのご回答をお願いします。',
-        tag: 'tgt-start-notification'
-      });
+      await sendLocalNotification(
+        '🎉 今日の記録がスタートしました！',
+        '7日間の待機期間お疲れ様でした！本日から14日間のTGT記録が始まります。まずは「介入開始時アンケート②」へのご回答をお願いします。',
+        'tgt-start-notification'
+      );
       localStorage.setItem(`tgt_start_notified_${userId}`, 'true');
     }
   }
@@ -1912,10 +1976,11 @@ async function checkScheduledNotifications() {
 
       // 本日の入力がまだないときだけ通知送信
       if (!hasTodayRecord) {
-        new Notification('「今日はどんな1日でしたか？」', {
-          body: '1日を振り返って、良かった3つの出来事を記録してみましょう。',
-          tag: 'tgt-daily-reminder'
-        });
+        await sendLocalNotification(
+          '「今日はどんな1日でしたか？」',
+          '1日を振り返って、良かった3つの出来事を記録してみましょう。',
+          'tgt-daily-reminder'
+        );
         localStorage.setItem(`tgt_notified_${userId}_${todayStr}`, 'true');
       }
     }

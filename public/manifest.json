@@ -1,0 +1,16 @@
+{
+  "short_name": "今日の記録",
+  "name": "Three Good Things 今日の記録",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#f7f5ef",
+  "theme_color": "#5c6f52",
+  "display": "standalone",
+  "orientation": "portrait"
+}
