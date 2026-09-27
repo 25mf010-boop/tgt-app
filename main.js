@@ -829,42 +829,44 @@ async function updateAdminView() {
   if (u3) u3.value = surveyUrls.survey3;
   if (u4) u4.value = surveyUrls.survey4;
 
+  // 不要な旧ダミーID (A001〜A024) を state.users から完全除去
+  if (state.users) {
+    Object.keys(state.users).forEach(id => {
+      if (/^A\d{3}$/i.test(id)) delete state.users[id];
+    });
+  }
+
   const userMap = new Map();
   let mergedRecords = [];
 
   // 元の Supabase クラウドデータベースからロード
   if (supabase) {
     try {
-      const { data: uData, error: uErr } = await supabase.from('users').select('*');
-      const { data: rData, error: rErr } = await supabase.from('records').select('*');
+      const { data: uData } = await supabase.from('users').select('*');
+      const { data: rData } = await supabase.from('records').select('*');
 
       if (uData && uData.length > 0) {
-        uData.forEach(u => userMap.set(u.id, u));
+        // A001〜A024 を除外して登録
+        uData.filter(u => !/^A\d{3}$/i.test(u.id)).forEach(u => userMap.set(u.id, u));
       }
       if (rData && rData.length > 0) {
-        mergedRecords.push(...rData);
+        mergedRecords.push(...rData.filter(r => !/^A\d{3}$/i.test(r.user_id)));
       }
     } catch (err) {
       console.warn("Original Supabase fetch warning:", err);
     }
+  } else {
+    // オフライン時のみローカルストレージからマージ
+    Object.keys(state.users || {}).forEach(id => {
+      if (!/^A\d{3}$/i.test(id) && !userMap.has(id)) {
+        userMap.set(id, {
+          id,
+          password: state.users[id].password || 'pass123',
+          signup_date: state.users[id].signupDate || null
+        });
+      }
+    });
   }
-
-  // ローカルストレージに保持されている24名の全被験者をマージ補填
-  Object.keys(state.users || {}).forEach(id => {
-    if (!userMap.has(id)) {
-      userMap.set(id, {
-        id,
-        password: state.users[id].password || 'pass123',
-        signup_date: state.users[id].signupDate || getTodayString()
-      });
-    }
-  });
-
-  Object.values(state.records || {}).forEach(userRecs => {
-    if (Array.isArray(userRecs)) {
-      mergedRecords.push(...userRecs);
-    }
-  });
 
   userList = Array.from(userMap.values());
   allRecords = mergedRecords;
