@@ -6,7 +6,7 @@ import './style.css';
 // 本番運用時は、Supabaseで作成した「URL」と「anonキー」を以下に貼り付けてください。
 // 空白のままにしておくと、自動的にスマートフォンの「ローカル保存（localStorage）」で動作します。
 const SUPABASE_URL = "https://mgghhsnrhtohnykopvcy.supabase.co";
-const SUPABASE_KEY = "sb_publishable_z6-DSpZcaUZ6SZx71x_VEQ__H4lVge9";
+const SUPABASE_KEY = "sb_publishable_j2aAI144_IhVnTFrNlRzFA_aEBFL-Y0";
 
 
 let supabase = null;
