@@ -5,7 +5,7 @@ import './style.css';
 // =========================================================================
 // 本番運用時は、Supabaseで作成した「URL」と「anonキー」を以下に貼り付けてください。
 // 空白のままにしておくと、自動的にスマートフォンの「ローカル保存（localStorage）」で動作します。
-const SUPABASE_URL = "https://dkhkwubcftbdgfxxssjr.supabase.co";
+const SUPABASE_URL = "https://mgghhsnrhtohnykopvcy.supabase.co";
 const SUPABASE_KEY = "sb_publishable_z6-DSpZcaUZ6SZx71x_VEQ__H4lVge9";
 
 
@@ -60,10 +60,10 @@ async function getUserPhaseData(userId) {
     survey4_completed: false
   };
 
-  // 1. クラウド Supabase が利用可能な場合は、常に Supabase のデータを最優先取得
+  // 1. クラウド Supabase が利用可能な場合は、常に Supabase の user_phases を最優先取得
   if (supabase) {
     try {
-      const { data: cloudPhase } = await supabase
+      const { data: cloudPhase, error: phaseErr } = await supabase
         .from('user_phases')
         .select('*')
         .eq('user_id', userId)
@@ -82,6 +82,23 @@ async function getUserPhaseData(userId) {
         const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
         allPhases[userId] = phaseData;
         localStorage.setItem('tgt_user_phases', JSON.stringify(allPhases));
+        return phaseData;
+      }
+
+      // もし user_phases にレコードがないが、records テーブルに既に記録がある場合、自動的に初回アンケート完了とみなす補正
+      const { data: userRecs } = await supabase
+        .from('records')
+        .select('date, timestamp')
+        .eq('user_id', userId)
+        .order('timestamp', { ascending: true })
+        .limit(1);
+
+      if (userRecs && userRecs.length > 0) {
+        phaseData.survey1_completed = true;
+        phaseData.survey1_date = userRecs[0].date;
+        phaseData.survey2_completed = true; // 記録があるので介入開始時アンケートもクリア扱い
+        // クラウド側に初期レコードを補填生成
+        await saveUserPhaseData(userId, phaseData);
         return phaseData;
       }
     } catch (err) {
@@ -107,30 +124,36 @@ async function saveUserPhaseData(userId, data) {
     try {
       const payload = {
         user_id: userId,
-        survey1_completed: allPhases[userId].survey1_completed || false,
+        survey1_completed: !!allPhases[userId].survey1_completed,
         survey1_date: allPhases[userId].survey1_date || null,
-        survey2_completed: allPhases[userId].survey2_completed || false,
-        survey3_completed: allPhases[userId].survey3_completed || false,
-        survey4_completed: allPhases[userId].survey4_completed || false,
+        survey2_completed: !!allPhases[userId].survey2_completed,
+        survey3_completed: !!allPhases[userId].survey3_completed,
+        survey4_completed: !!allPhases[userId].survey4_completed,
         updated_at: new Date().toISOString()
       };
 
-      const { data: existing } = await supabase
+      // 既存レコードの検索
+      const { data: existing, error: selErr } = await supabase
         .from('user_phases')
         .select('id')
         .eq('user_id', userId)
         .maybeSingle();
 
       if (existing && existing.id) {
-        await supabase.from('user_phases').update(payload).eq('id', existing.id);
+        const { error: upErr } = await supabase.from('user_phases').update(payload).eq('id', existing.id);
+        if (upErr) {
+          console.error("user_phases update error:", upErr);
+          await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' });
+        }
       } else {
         const { error: insErr } = await supabase.from('user_phases').insert([payload]);
         if (insErr) {
+          console.error("user_phases insert error:", insErr);
           await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' });
         }
       }
     } catch (err) {
-      console.warn("user_phases Cloud save warning:", err);
+      console.error("user_phases Cloud save critical error:", err);
     }
   }
 }
@@ -765,6 +788,8 @@ async function updateAdminView() {
   let userList = [];
   let allRecords = [];
 
+  const statusBox = document.getElementById('admin-supabase-status-box');
+
   // GoogleフォームURLを管理者フォームに反映
   const u1 = document.getElementById('url-survey-1');
   const u2 = document.getElementById('url-survey-2');
@@ -776,12 +801,47 @@ async function updateAdminView() {
   if (u4) u4.value = surveyUrls.survey4;
 
   if (supabase) {
-    // Supabaseから全ユーザーと全レコードをロード
-    const { data: usersData } = await supabase.from('users').select('*');
-    const { data: recsData } = await supabase.from('records').select('*');
-    userList = usersData || [];
-    allRecords = recsData || [];
+    try {
+      // Supabaseから全ユーザーと全レコードをロード
+      const { data: usersData, error: uErr } = await supabase.from('users').select('*');
+      const { data: recsData, error: rErr } = await supabase.from('records').select('*');
+      const { data: phaseTest, error: pErr } = await supabase.from('user_phases').select('id').limit(1);
+
+      if (uErr || rErr) {
+        if (statusBox) {
+          statusBox.innerHTML = `⚠️ <strong>Supabase通信警告:</strong> テーブル（users/records）の接続でエラーが発生しました。SQLでテーブル作成が必要です。<br><small style="color:var(--color-danger);">${uErr ? uErr.message : (rErr ? rErr.message : '')}</small>`;
+          statusBox.style.background = 'rgba(217, 83, 79, 0.1)';
+          statusBox.style.borderColor = 'var(--color-danger)';
+        }
+      } else if (pErr) {
+        if (statusBox) {
+          statusBox.innerHTML = `⚠️ <strong>Supabaseフェーズテーブル未検出:</strong> <code>user_phases</code> テーブルが未作成です。SQL Editorでテーブル作成を実行してください。<br><small style="color:#d9534f;">エラー: ${pErr.message}</small>`;
+          statusBox.style.background = 'rgba(240, 173, 78, 0.15)';
+          statusBox.style.borderColor = '#f0ad4e';
+        }
+      } else {
+        if (statusBox) {
+          statusBox.innerHTML = `🟢 <strong>Supabase クラウド正常稼働中:</strong> データベース接続 OK（全テーブル疎通・リアルタイム同期対応）`;
+          statusBox.style.background = 'rgba(92, 111, 82, 0.12)';
+          statusBox.style.borderColor = 'var(--color-primary-green)';
+        }
+      }
+
+      userList = usersData || [];
+      allRecords = recsData || [];
+    } catch (err) {
+      if (statusBox) {
+        statusBox.innerHTML = `🔴 <strong>Supabase接続エラー:</strong> クラウド接続に失敗しました。<br><small style="color:var(--color-danger);">${err.message}</small>`;
+        statusBox.style.background = 'rgba(217, 83, 79, 0.1)';
+        statusBox.style.borderColor = 'var(--color-danger)';
+      }
+    }
   } else {
+    if (statusBox) {
+      statusBox.innerHTML = `ℹ️ <strong>ローカル保存モード:</strong> Supabaseキー未設定のためローカルストレージで動作中`;
+      statusBox.style.background = 'rgba(0, 0, 0, 0.05)';
+      statusBox.style.borderColor = '#ccc';
+    }
     // ローカルからロード
     userList = Object.keys(state.users).map(id => ({
       id,
