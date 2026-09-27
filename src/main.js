@@ -50,9 +50,9 @@ function loadSurveyUrls() {
 }
 let surveyUrls = loadSurveyUrls();
 
-// ユーザーごとのフェーズ状態ヘルパー（Supabaseクラウド同期対応）
+// ユーザーごとのフェーズ状態ヘルパー（Supabaseクラウド同期・クラウド最優先）
 async function getUserPhaseData(userId) {
-  let localData = {
+  let phaseData = {
     survey1_completed: false,
     survey1_date: null,
     survey2_completed: false,
@@ -60,14 +60,9 @@ async function getUserPhaseData(userId) {
     survey4_completed: false
   };
 
-  const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
-  if (allPhases[userId]) {
-    localData = { ...localData, ...allPhases[userId] };
-  }
-
+  // 1. クラウド Supabase が利用可能な場合は、常に Supabase のデータを最優先取得
   if (supabase) {
     try {
-      // Supabase の user_phases テーブルから被験者の実際のアンケート完了ステータスを取得
       const { data: cloudPhase } = await supabase
         .from('user_phases')
         .select('*')
@@ -75,18 +70,32 @@ async function getUserPhaseData(userId) {
         .maybeSingle();
 
       if (cloudPhase) {
-        localData.survey1_completed = cloudPhase.survey1_completed ?? localData.survey1_completed;
-        localData.survey1_date = cloudPhase.survey1_date || localData.survey1_date;
-        localData.survey2_completed = cloudPhase.survey2_completed ?? localData.survey2_completed;
-        localData.survey3_completed = cloudPhase.survey3_completed ?? localData.survey3_completed;
-        localData.survey4_completed = cloudPhase.survey4_completed ?? localData.survey4_completed;
+        phaseData = {
+          survey1_completed: !!cloudPhase.survey1_completed,
+          survey1_date: cloudPhase.survey1_date || null,
+          survey2_completed: !!cloudPhase.survey2_completed,
+          survey3_completed: !!cloudPhase.survey3_completed,
+          survey4_completed: !!cloudPhase.survey4_completed
+        };
+
+        // ローカルキャッシュも同期更新
+        const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
+        allPhases[userId] = phaseData;
+        localStorage.setItem('tgt_user_phases', JSON.stringify(allPhases));
+        return phaseData;
       }
     } catch (err) {
       console.warn("user_phases Cloud sync warning:", err);
     }
   }
 
-  return localData;
+  // 2. オフライン時またはクラウドにまだ記録がない場合はローカルストレージを参照
+  const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
+  if (allPhases[userId]) {
+    phaseData = { ...phaseData, ...allPhases[userId] };
+  }
+
+  return phaseData;
 }
 
 async function saveUserPhaseData(userId, data) {
