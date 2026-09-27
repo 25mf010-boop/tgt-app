@@ -1458,16 +1458,51 @@ document.addEventListener('DOMContentLoaded', async () => {
       await supabase.from('user_phases').delete().in('user_id', dummyIds);
       await supabase.from('records').delete().in('user_id', dummyIds);
 
-      // (2) 公式24名の被験者アカウント（パスワード登録・補填）
-      const { data: existingUsers } = await supabase.from('users').select('id, password');
+      // (2) 公式24名の被験者アカウント (users テーブルへの登録・補填 & appleの開始日を2026-09-24に設定)
+      const { data: existingUsers } = await supabase.from('users').select('id, password, signup_date');
       const existingMap = new Map((existingUsers || []).map(u => [String(u.id).toLowerCase(), u]));
 
       for (const p of OFFICIAL_PARTICIPANTS) {
         const existing = existingMap.get(p.id.toLowerCase());
+        const initialDate = p.id === 'apple' ? '2026-09-24' : null;
+
         if (!existing) {
-          await supabase.from('users').insert([{ id: p.id, password: p.password, signup_date: null }]);
-        } else if (existing.password !== p.password) {
-          await supabase.from('users').update({ password: p.password }).eq('id', existing.id);
+          await supabase.from('users').insert([{ id: p.id, password: p.password, signup_date: initialDate }]);
+        } else {
+          const updatePayload = {};
+          if (existing.password !== p.password) updatePayload.password = p.password;
+          if (p.id === 'apple' && existing.signup_date !== '2026-09-24') updatePayload.signup_date = '2026-09-24';
+          if (Object.keys(updatePayload).length > 0) {
+            await supabase.from('users').update(updatePayload).eq('id', existing.id || p.id);
+          }
+        }
+      }
+
+      // (3) 公式24名全員の user_phases クラウドテーブルを一括事前生成・同期
+      const { data: existingPhases } = await supabase.from('user_phases').select('user_id, id');
+      const phaseSet = new Set((existingPhases || []).map(ph => String(ph.user_id).toLowerCase()));
+
+      for (const p of OFFICIAL_PARTICIPANTS) {
+        const targetDate = p.id === 'apple' ? '2026-09-24' : null;
+        const isCompleted = !!targetDate;
+
+        if (!phaseSet.has(p.id.toLowerCase())) {
+          await supabase.from('user_phases').insert([{
+            user_id: p.id,
+            survey1_completed: isCompleted,
+            survey1_date: targetDate,
+            survey2_completed: false,
+            survey3_completed: false,
+            survey4_completed: false,
+            updated_at: new Date().toISOString()
+          }]);
+        } else if (p.id === 'apple') {
+          // apple の日付を 2026-09-24 に補正
+          await supabase.from('user_phases').update({
+            survey1_completed: true,
+            survey1_date: '2026-09-24',
+            updated_at: new Date().toISOString()
+          }).eq('user_id', 'apple');
         }
       }
     } catch (seedErr) {
