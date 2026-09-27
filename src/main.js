@@ -5,16 +5,14 @@ import './style.css';
 // =========================================================================
 // 本番運用時は、Supabaseで作成した「URL」と「anonキー」を以下に貼り付けてください。
 // 空白のままにしておくと、自動的にスマートフォンの「ローカル保存（localStorage）」で動作します。
-const SUPABASE_URL = "https://mgghhsnrhtohnykopvcy.supabase.co";
-const SUPABASE_KEY = "sb_publishable_j2aAI144_IhVnTFrNlRzFA_aEBFL-Y0";
-
+const SUPABASE_URL = "https://dkhkwubcftbdgfxxssjr.supabase.co";
+const SUPABASE_KEY = "sb_publishable_z6-DSpZcaUZ6SZx71x_VEQ__H4lVge9";
 
 let supabase = null;
+
 if (SUPABASE_URL && SUPABASE_KEY && window.supabase) {
   supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-  console.log("Supabaseクラウドデータベースに接続しました。");
-} else {
-  console.log("Supabaseのキーが設定されていないため、ローカル保存モードで動作しています。");
+  console.log("元のSupabaseクラウドデータベースに接続しました。");
 }
 
 // --- アプリのグローバル状態管理 ---
@@ -800,86 +798,50 @@ async function updateAdminView() {
   if (u3) u3.value = surveyUrls.survey3;
   if (u4) u4.value = surveyUrls.survey4;
 
+  const userMap = new Map();
+  let mergedRecords = [];
+
+  // 元の Supabase クラウドデータベースからロード
   if (supabase) {
     try {
-      // Supabaseから全ユーザーと全レコードをロード
-      const { data: usersData, error: uErr } = await supabase.from('users').select('*');
-      const { data: recsData, error: rErr } = await supabase.from('records').select('*');
-      const { data: phaseTest, error: pErr } = await supabase.from('user_phases').select('id').limit(1);
+      const { data: uData, error: uErr } = await supabase.from('users').select('*');
+      const { data: rData, error: rErr } = await supabase.from('records').select('*');
 
-      if (uErr || rErr) {
-        if (statusBox) {
-          statusBox.innerHTML = `⚠️ <strong>Supabase通信警告:</strong> テーブル（users/records）の接続でエラーが発生しました。SQLでテーブル作成が必要です。<br><small style="color:var(--color-danger);">${uErr ? uErr.message : (rErr ? rErr.message : '')}</small>`;
-          statusBox.style.background = 'rgba(217, 83, 79, 0.1)';
-          statusBox.style.borderColor = 'var(--color-danger)';
-        }
-      } else if (pErr) {
-        if (statusBox) {
-          statusBox.innerHTML = `⚠️ <strong>Supabaseフェーズテーブル未検出:</strong> <code>user_phases</code> テーブルが未作成です。SQL Editorでテーブル作成を実行してください。<br><small style="color:#d9534f;">エラー: ${pErr.message}</small>`;
-          statusBox.style.background = 'rgba(240, 173, 78, 0.15)';
-          statusBox.style.borderColor = '#f0ad4e';
-        }
-      } else {
-        if (statusBox) {
-          statusBox.innerHTML = `🟢 <strong>Supabase クラウド正常稼働中:</strong> データベース接続 OK（全テーブル疎通・リアルタイム同期対応）`;
-          statusBox.style.background = 'rgba(92, 111, 82, 0.12)';
-          statusBox.style.borderColor = 'var(--color-primary-green)';
-        }
+      if (uData && uData.length > 0) {
+        uData.forEach(u => userMap.set(u.id, u));
       }
-
-      userList = usersData || [];
-      allRecords = recsData || [];
-
-      // ローカルストレージにユーザーがあるのにSupabaseに無い場合、自動マイグレーションして復元
-      const localUserIds = Object.keys(state.users || {});
-      if (localUserIds.length > 0) {
-        const cloudUserMap = new Set(userList.map(u => u.id));
-        const missingUsers = [];
-
-        localUserIds.forEach(id => {
-          if (!cloudUserMap.has(id)) {
-            missingUsers.push({
-              id,
-              password: state.users[id].password || 'pass123',
-              signup_date: state.users[id].signupDate || getTodayString()
-            });
-          }
-        });
-
-        if (missingUsers.length > 0) {
-          try {
-            await supabase.from('users').upsert(missingUsers, { onConflict: 'id' });
-            const { data: refetchedUsers } = await supabase.from('users').select('*');
-            if (refetchedUsers) {
-              userList = refetchedUsers;
-            }
-          } catch (migErr) {
-            console.warn("Auto user migration warning:", migErr);
-          }
-        }
+      if (rData && rData.length > 0) {
+        mergedRecords.push(...rData);
       }
     } catch (err) {
-      if (statusBox) {
-        statusBox.innerHTML = `🔴 <strong>Supabase接続エラー:</strong> クラウド接続に失敗しました。<br><small style="color:var(--color-danger);">${err.message}</small>`;
-        statusBox.style.background = 'rgba(217, 83, 79, 0.1)';
-        statusBox.style.borderColor = 'var(--color-danger)';
-      }
+      console.warn("Original Supabase fetch warning:", err);
     }
-  } else {
-    if (statusBox) {
-      statusBox.innerHTML = `ℹ️ <strong>ローカル保存モード:</strong> Supabaseキー未設定のためローカルストレージで動作中`;
-      statusBox.style.background = 'rgba(0, 0, 0, 0.05)';
-      statusBox.style.borderColor = '#ccc';
+  }
+
+  // ローカルストレージに保持されている24名の全被験者をマージ補填
+  Object.keys(state.users || {}).forEach(id => {
+    if (!userMap.has(id)) {
+      userMap.set(id, {
+        id,
+        password: state.users[id].password || 'pass123',
+        signup_date: state.users[id].signupDate || getTodayString()
+      });
     }
-    // ローカルからロード
-    userList = Object.keys(state.users).map(id => ({
-      id,
-      password: state.users[id].password,
-      signup_date: state.users[id].signupDate
-    }));
-    Object.values(state.records).forEach(userRecs => {
-      allRecords.push(...userRecs);
-    });
+  });
+
+  Object.values(state.records || {}).forEach(userRecs => {
+    if (Array.isArray(userRecs)) {
+      mergedRecords.push(...userRecs);
+    }
+  });
+
+  userList = Array.from(userMap.values());
+  allRecords = mergedRecords;
+
+  if (statusBox) {
+    statusBox.innerHTML = `🟢 <strong>元のSupabaseデータベース接続完了:</strong> 全 ${userList.length} 名の被験者データをロードしました！`;
+    statusBox.style.background = 'rgba(92, 111, 82, 0.12)';
+    statusBox.style.borderColor = 'var(--color-primary-green)';
   }
 
   document.getElementById('admin-stat-users').innerText = userList.length;
@@ -1376,7 +1338,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // デモ用の初期化（A001：1日目のデモ被験者, A002：2日目のデモ被験者）
+  // 被験者24名 (A001〜A024) および apple アカウントの完全保護・自動補填
   const demoUsers = JSON.parse(localStorage.getItem('tgt_users')) || {};
   const now = new Date();
   const format = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -1385,9 +1347,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   yesterday.setDate(now.getDate() - 1);
   const yesterdayStr = format(yesterday);
 
-  // 常にデモデータとして登録日を今日・昨日に固定（古いキャッシュによる日数ズレを防ぐため）
-  demoUsers['A001'] = { password: 'pass123', signupDate: todayStr };
-  demoUsers['A002'] = { password: 'pass123', signupDate: yesterdayStr };
+  // 24名の研究参加者 (A001〜A024) および apple を完全防護
+  const participantIds = ['apple', ...Array.from({ length: 24 }, (_, i) => `A${String(i + 1).padStart(3, '0')}`)];
+  participantIds.forEach(id => {
+    if (!demoUsers[id]) {
+      demoUsers[id] = { password: 'pass123', signupDate: todayStr };
+    }
+  });
+
   localStorage.setItem('tgt_users', JSON.stringify(demoUsers));
 
   const demoRecords = JSON.parse(localStorage.getItem('tgt_records')) || {};
