@@ -67,6 +67,7 @@ async function getUserPhaseData(userId) {
 
   if (supabase) {
     try {
+      // 1. user_phases テーブルからの読み込みを試行
       const { data: cloudPhase } = await supabase
         .from('user_phases')
         .select('*')
@@ -79,6 +80,21 @@ async function getUserPhaseData(userId) {
         localData.survey2_completed = cloudPhase.survey2_completed ?? localData.survey2_completed;
         localData.survey3_completed = cloudPhase.survey3_completed ?? localData.survey3_completed;
         localData.survey4_completed = cloudPhase.survey4_completed ?? localData.survey4_completed;
+      }
+
+      // 2. users テーブルの signup_date をフォールバック確認
+      const { data: userData } = await supabase
+        .from('users')
+        .select('signup_date')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (userData && userData.signup_date) {
+        // signup_date が存在する場合は初回アンケート完了と判定
+        localData.survey1_completed = true;
+        if (!localData.survey1_date) {
+          localData.survey1_date = userData.signup_date;
+        }
       }
     } catch (err) {
       console.warn("user_phases Cloud sync warning:", err);
@@ -94,6 +110,19 @@ async function saveUserPhaseData(userId, data) {
   localStorage.setItem('tgt_user_phases', JSON.stringify(allPhases));
 
   if (supabase) {
+    // 1. users テーブルの signup_date を即時更新（初回アンケート完了日として記憶）
+    if (data.survey1_completed && data.survey1_date) {
+      try {
+        await supabase
+          .from('users')
+          .update({ signup_date: data.survey1_date })
+          .eq('id', userId);
+      } catch (err) {
+        console.warn("users signup_date update warning:", err);
+      }
+    }
+
+    // 2. user_phases テーブルヘの書き込みを試行
     try {
       const payload = {
         user_id: userId,
