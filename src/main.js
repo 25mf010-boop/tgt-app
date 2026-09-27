@@ -58,10 +58,10 @@ async function getUserPhaseData(userId) {
     survey4_completed: false
   };
 
-  // 1. クラウド Supabase が利用可能な場合は、常に Supabase の user_phases を最優先取得
   if (supabase) {
     try {
-      const { data: cloudPhase, error: phaseErr } = await supabase
+      // 1. user_phases クラウドテーブルから最新フェーズを取得
+      const { data: cloudPhase } = await supabase
         .from('user_phases')
         .select('*')
         .eq('user_id', userId)
@@ -75,15 +75,24 @@ async function getUserPhaseData(userId) {
           survey3_completed: !!cloudPhase.survey3_completed,
           survey4_completed: !!cloudPhase.survey4_completed
         };
-
-        // ローカルキャッシュも同期更新
-        const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
-        allPhases[userId] = phaseData;
-        localStorage.setItem('tgt_user_phases', JSON.stringify(allPhases));
-        return phaseData;
       }
 
-      // もし user_phases にレコードがないが、records テーブルに既に記録がある場合、自動的に初回アンケート完了とみなす補正
+      // 2. users クラウドテーブルの signup_date を取得 (管理者設定・自動復元用マスター)
+      const { data: userData } = await supabase
+        .from('users')
+        .select('signup_date')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (userData && userData.signup_date) {
+        // users.signup_date が設定されている場合は確実に初回アンケート回答済み
+        phaseData.survey1_completed = true;
+        if (!phaseData.survey1_date) {
+          phaseData.survey1_date = userData.signup_date;
+        }
+      }
+
+      // 3. records クラウドテーブルに記入データがある場合
       const { data: userRecs } = await supabase
         .from('records')
         .select('date, timestamp')
@@ -93,18 +102,21 @@ async function getUserPhaseData(userId) {
 
       if (userRecs && userRecs.length > 0) {
         phaseData.survey1_completed = true;
-        phaseData.survey1_date = userRecs[0].date;
-        phaseData.survey2_completed = true; // 記録があるので介入開始時アンケートもクリア扱い
-        // クラウド側に初期レコードを補填生成
-        await saveUserPhaseData(userId, phaseData);
-        return phaseData;
+        phaseData.survey1_date = phaseData.survey1_date || userRecs[0].date;
+        phaseData.survey2_completed = true;
       }
+
+      // ローカルキャッシュも同期更新
+      const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
+      allPhases[userId] = phaseData;
+      localStorage.setItem('tgt_user_phases', JSON.stringify(allPhases));
+      return phaseData;
     } catch (err) {
       console.warn("user_phases Cloud sync warning:", err);
     }
   }
 
-  // 2. オフライン時またはクラウドにまだ記録がない場合はローカルストレージを参照
+  // オフライン時またはクラウド未接続時
   const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
   if (allPhases[userId]) {
     phaseData = { ...phaseData, ...allPhases[userId] };
@@ -120,6 +132,26 @@ async function saveUserPhaseData(userId, data) {
 
   if (supabase) {
     try {
+      // 1. users テーブルの signup_date も確実に同時更新
+      if (data.survey1_completed && data.survey1_date) {
+        const { data: existingUser } = await supabase.from('users').select('password').eq('id', userId).maybeSingle();
+        const userPw = (existingUser && existingUser.password) || (state.users && state.users[userId] && state.users[userId].password) || 'pass123';
+        await supabase.from('users').upsert([{
+          id: userId,
+          password: userPw,
+          signup_date: data.survey1_date
+        }], { onConflict: 'id' });
+      } else if (data.survey1_completed === false) {
+        const { data: existingUser } = await supabase.from('users').select('password').eq('id', userId).maybeSingle();
+        const userPw = (existingUser && existingUser.password) || (state.users && state.users[userId] && state.users[userId].password) || 'pass123';
+        await supabase.from('users').upsert([{
+          id: userId,
+          password: userPw,
+          signup_date: null
+        }], { onConflict: 'id' });
+      }
+
+      // 2. user_phases テーブルの更新・挿入
       const payload = {
         user_id: userId,
         survey1_completed: !!allPhases[userId].survey1_completed,
@@ -130,8 +162,7 @@ async function saveUserPhaseData(userId, data) {
         updated_at: new Date().toISOString()
       };
 
-      // 既存レコードの検索
-      const { data: existing, error: selErr } = await supabase
+      const { data: existing } = await supabase
         .from('user_phases')
         .select('id')
         .eq('user_id', userId)
@@ -839,7 +870,7 @@ async function updateAdminView() {
   allRecords = mergedRecords;
 
   if (statusBox) {
-    statusBox.innerHTML = `🟢 <strong>元のSupabaseデータベース接続完了:</strong> 全 ${userList.length} 名の被験者データをロードしました！`;
+    statusBox.innerHTML = `🟢 <strong>Supabase クラウド正常稼働中:</strong> 全 ${userList.length} 名の被験者データと ${allRecords.length} 件の記録に正常アクセス中`;
     statusBox.style.background = 'rgba(92, 111, 82, 0.12)';
     statusBox.style.borderColor = 'var(--color-primary-green)';
   }
@@ -924,12 +955,32 @@ async function updateAdminView() {
       if (!inputEl || !inputEl.value) return;
 
       const selectedDate = inputEl.value;
+      const todayStr = getTodayString();
+      const diffDays = getDaysBetween(selectedDate, todayStr);
+
       const phaseData = await getUserPhaseData(userId);
       phaseData.survey1_completed = true;
       phaseData.survey1_date = selectedDate;
+
+      // 被験者アカウント情報をSupabaseに確実に同期
+      if (supabase) {
+        try {
+          const { data: existingUser } = await supabase.from('users').select('password').eq('id', userId).maybeSingle();
+          const userPw = (existingUser && existingUser.password) || (state.users && state.users[userId] && state.users[userId].password) || 'pass123';
+          await supabase.from('users').upsert([{
+            id: userId,
+            password: userPw,
+            signup_date: selectedDate
+          }], { onConflict: 'id' });
+        } catch (uErr) {
+          console.warn("User account sync warning:", uErr);
+        }
+      }
+
       await saveUserPhaseData(userId, phaseData);
 
-      showToast(`被験者「${userId}」の初回アンケート①完了日を ${selectedDate} に保存しました！`);
+      const targetStateText = diffDays >= 7 ? '「介入開始時アンケート②未回答」' : `「待機中 (あと${7 - diffDays}日)」`;
+      showToast(`被験者「${userId}」のアンケート①完了日を ${selectedDate} に更新し、${targetStateText} 状態に反映しました！`);
       await updateAdminView();
     });
   });
@@ -1715,7 +1766,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const { error: insertError } = await supabase
           .from('users')
-          .insert([{ id: newUserId, password: newPassword, signup_date: todayStr }]);
+          .insert([{ id: newUserId, password: newPassword, signup_date: null }]);
 
         if (insertError) {
           showToast('被験者アカウントの登録に失敗しました。');
