@@ -794,13 +794,39 @@ function loadRecordForSelectedDate(userId, dateStr, progress) {
         <div class="detail-mood">気分: ${moodText}</div>
         <ul class="detail-goods">${goodsHtml}</ul>
         ${memoHtml}
+        <button type="button" class="btn btn-sm btn-outline mt-2 edit-past-btn" style="width:100%; font-size:0.8rem; padding:4px 8px;">✏️ この日の記録を編集する</button>
       `;
 
       item.addEventListener('click', () => {
         itemGroup.classList.toggle('expanded');
       });
 
+      const editBtn = detail.querySelector('.edit-past-btn');
+      if (editBtn) {
+        editBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const selectEl = document.getElementById('target-date-select');
+          if (selectEl) {
+            selectEl.value = itemDateStr;
+            loadRecordForSelectedDate(userId, itemDateStr, progress);
+            document.getElementById('record-form').scrollIntoView({ behavior: 'smooth' });
+          }
+        });
+      }
+
       itemGroup.appendChild(detail);
+    } else if (!isFuture) {
+      // 未記入・書き忘れの日をタップした場合、即座にその日のフォームを呼び出す
+      item.style.cursor = 'pointer';
+      item.title = 'タップしてこの日の記録を遡り入力';
+      item.addEventListener('click', () => {
+        const selectEl = document.getElementById('target-date-select');
+        if (selectEl) {
+          selectEl.value = itemDateStr;
+          loadRecordForSelectedDate(userId, itemDateStr, progress);
+          document.getElementById('record-form').scrollIntoView({ behavior: 'smooth' });
+        }
+      });
     }
 
     progressList.appendChild(itemGroup);
