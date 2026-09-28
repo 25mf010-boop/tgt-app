@@ -58,47 +58,74 @@ async function getUserPhaseData(userId) {
     survey4_completed: false
   };
 
+  if (!userId) return phaseData;
+
+  const lowerId = String(userId).toLowerCase();
+
+  // 1. ローカルストレージの最新操作状態をベースにする (大文字小文字対応)
+  const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
+  const matchedKey = Object.keys(allPhases).find(k => k.toLowerCase() === lowerId);
+  if (matchedKey && allPhases[matchedKey]) {
+    phaseData = { ...phaseData, ...allPhases[matchedKey] };
+  }
+
+  // 個別キーからのフェーズ状態復元（強いフェールセーフ）
+  if (localStorage.getItem(`tgt_survey1_completed_${lowerId}`) === 'true') {
+    phaseData.survey1_completed = true;
+  }
+  const s1DateFlag = localStorage.getItem(`tgt_survey1_date_${lowerId}`);
+  if (s1DateFlag) {
+    phaseData.survey1_date = phaseData.survey1_date || s1DateFlag;
+  }
+  if (localStorage.getItem(`tgt_survey2_completed_${lowerId}`) === 'true') {
+    phaseData.survey2_completed = true;
+  }
+  if (localStorage.getItem(`tgt_survey4_completed_${lowerId}`) === 'true') {
+    phaseData.survey4_completed = true;
+    phaseData.survey3_completed = true;
+  }
+
   if (supabase) {
     try {
-      // 1. user_phases クラウドテーブルから最新フェーズを取得
+      // 2. user_phases クラウドテーブルから最新フェーズを取得して論理和マージ (テーブル非存在時エラー安全保護)
       const { data: cloudPhase } = await supabase
         .from('user_phases')
         .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
+        .ilike('user_id', userId)
+        .maybeSingle()
+        .catch(() => ({ data: null }));
 
       if (cloudPhase) {
-        phaseData = {
-          survey1_completed: !!cloudPhase.survey1_completed,
-          survey1_date: cloudPhase.survey1_date || null,
-          survey2_completed: !!cloudPhase.survey2_completed,
-          survey3_completed: !!cloudPhase.survey3_completed,
-          survey4_completed: !!cloudPhase.survey4_completed
-        };
+        phaseData.survey1_completed = phaseData.survey1_completed || !!cloudPhase.survey1_completed;
+        phaseData.survey1_date = phaseData.survey1_date || cloudPhase.survey1_date;
+        phaseData.survey2_completed = phaseData.survey2_completed || !!cloudPhase.survey2_completed;
+        phaseData.survey3_completed = phaseData.survey3_completed || !!cloudPhase.survey3_completed;
+        phaseData.survey4_completed = phaseData.survey4_completed || !!cloudPhase.survey4_completed;
       }
 
-      // 2. users クラウドテーブルの signup_date を取得 (管理者設定・自動復元用マスター)
+      // 3. users クラウドテーブルの signup_date を取得 (管理者設定マスター)
       const { data: userData } = await supabase
         .from('users')
         .select('signup_date')
-        .eq('id', userId)
-        .maybeSingle();
+        .ilike('id', userId)
+        .maybeSingle()
+        .catch(() => ({ data: null }));
 
       if (userData && userData.signup_date) {
-        // users.signup_date が設定されている場合は確実に初回アンケート回答済み
         phaseData.survey1_completed = true;
         if (!phaseData.survey1_date) {
           phaseData.survey1_date = userData.signup_date;
         }
       }
 
-      // 3. records クラウドテーブルに記入データがある場合
+      // 4. records クラウドテーブルに記入データがある場合
       const { data: userRecs } = await supabase
         .from('records')
         .select('date, timestamp')
-        .eq('user_id', userId)
+        .ilike('user_id', userId)
         .order('timestamp', { ascending: true })
-        .limit(1);
+        .limit(1)
+        .catch(() => ({ data: null }));
 
       if (userRecs && userRecs.length > 0) {
         phaseData.survey1_completed = true;
@@ -106,9 +133,16 @@ async function getUserPhaseData(userId) {
         phaseData.survey2_completed = true;
       }
 
-      // ローカルキャッシュも同期更新
-      const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
+      // 状態がTrueに確定したものは個別キーにも永続化保存
+      if (phaseData.survey1_completed) localStorage.setItem(`tgt_survey1_completed_${lowerId}`, 'true');
+      if (phaseData.survey1_date) localStorage.setItem(`tgt_survey1_date_${lowerId}`, phaseData.survey1_date);
+      if (phaseData.survey2_completed) localStorage.setItem(`tgt_survey2_completed_${lowerId}`, 'true');
+      if (phaseData.survey4_completed) localStorage.setItem(`tgt_survey4_completed_${lowerId}`, 'true');
+
+      // ローカルストレージへ最新の統合状態を全キー表記に同期保存
       allPhases[userId] = phaseData;
+      allPhases[lowerId] = phaseData;
+      if (matchedKey) allPhases[matchedKey] = phaseData;
       localStorage.setItem('tgt_user_phases', JSON.stringify(allPhases));
       return phaseData;
     } catch (err) {
@@ -116,84 +150,84 @@ async function getUserPhaseData(userId) {
     }
   }
 
-  // オフライン時またはクラウド未接続時
-  const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
-  if (allPhases[userId]) {
-    phaseData = { ...phaseData, ...allPhases[userId] };
-  }
-
   return phaseData;
 }
 
 async function saveUserPhaseData(userId, data) {
+  if (!userId) return;
   const allPhases = JSON.parse(localStorage.getItem('tgt_user_phases')) || {};
-  allPhases[userId] = { ...allPhases[userId], ...data };
+  const lowerId = String(userId).toLowerCase();
+  const matchedKey = Object.keys(allPhases).find(k => k.toLowerCase() === lowerId);
+  const existingLocal = (matchedKey && allPhases[matchedKey]) || allPhases[userId] || allPhases[lowerId] || {};
+
+  const merged = { ...existingLocal, ...data };
+
+  // 個別フラグの保存
+  if (merged.survey1_completed) localStorage.setItem(`tgt_survey1_completed_${lowerId}`, 'true');
+  if (merged.survey1_date) localStorage.setItem(`tgt_survey1_date_${lowerId}`, merged.survey1_date);
+  if (merged.survey2_completed) localStorage.setItem(`tgt_survey2_completed_${lowerId}`, 'true');
+  if (merged.survey4_completed) localStorage.setItem(`tgt_survey4_completed_${lowerId}`, 'true');
+
+  allPhases[userId] = merged;
+  allPhases[lowerId] = merged;
+  if (matchedKey) allPhases[matchedKey] = merged;
   localStorage.setItem('tgt_user_phases', JSON.stringify(allPhases));
 
   if (supabase) {
     try {
       // 1. users テーブルの signup_date も確実に同時更新
-      if (data.survey1_completed && data.survey1_date) {
-        const { data: existingUser } = await supabase.from('users').select('password').eq('id', userId).maybeSingle();
+      if (merged.survey1_completed && merged.survey1_date) {
+        const { data: existingUser } = await supabase.from('users').select('password').ilike('id', userId).maybeSingle();
         const userPw = (existingUser && existingUser.password) || (state.users && state.users[userId] && state.users[userId].password) || 'pass123';
         await supabase.from('users').upsert([{
-          id: userId,
+          id: (existingUser && existingUser.id) || userId,
           password: userPw,
-          signup_date: data.survey1_date
-        }], { onConflict: 'id' });
-      } else if (data.survey1_completed === false) {
-        const { data: existingUser } = await supabase.from('users').select('password').eq('id', userId).maybeSingle();
-        const userPw = (existingUser && existingUser.password) || (state.users && state.users[userId] && state.users[userId].password) || 'pass123';
-        await supabase.from('users').upsert([{
-          id: userId,
-          password: userPw,
-          signup_date: null
-        }], { onConflict: 'id' });
+          signup_date: merged.survey1_date
+        }], { onConflict: 'id' }).catch(() => {});
       }
 
       // 2. user_phases テーブルの更新・挿入
       const payload = {
         user_id: userId,
-        survey1_completed: !!allPhases[userId].survey1_completed,
-        survey1_date: allPhases[userId].survey1_date || null,
-        survey2_completed: !!allPhases[userId].survey2_completed,
-        survey3_completed: !!allPhases[userId].survey3_completed,
-        survey4_completed: !!allPhases[userId].survey4_completed,
-        updated_at: new Date().toISOString()
+        survey1_completed: !!merged.survey1_completed,
+        survey1_date: merged.survey1_date || null,
+        survey2_completed: !!merged.survey2_completed,
+        survey3_completed: !!merged.survey3_completed,
+        survey4_completed: !!merged.survey4_completed
       };
 
       const { data: existing } = await supabase
         .from('user_phases')
         .select('id')
-        .eq('user_id', userId)
+        .ilike('user_id', userId)
         .maybeSingle();
 
       if (existing && existing.id) {
         const { error: upErr } = await supabase.from('user_phases').update(payload).eq('id', existing.id);
         if (upErr) {
-          console.error("user_phases update error:", upErr);
-          await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' });
+          console.warn("user_phases update error:", upErr);
+          await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' }).catch(() => {});
         }
       } else {
+        payload.id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : undefined;
         const { error: insErr } = await supabase.from('user_phases').insert([payload]);
         if (insErr) {
-          console.error("user_phases insert error:", insErr);
-          await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' });
+          console.warn("user_phases insert error:", insErr);
+          await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' }).catch(() => {});
         }
       }
     } catch (err) {
-      console.error("user_phases Cloud save critical error:", err);
+      console.warn("user_phases Cloud save critical error:", err);
     }
   }
 }
 
 // 被験者の現在の研究フェーズを取得する
 async function getParticipantPhase(userId) {
-  const progress = await getParticipantProgress(userId);
   const phaseData = await getUserPhaseData(userId);
+  const progress = await getParticipantProgress(userId);
 
   // 1. 初回アンケート①未完了 ➔ "baseline" (初回アンケート期)
-  // survey1_completed が false の場合はアカウント作成日に関わらず絶対未回答
   if (!phaseData.survey1_completed) {
     return {
       phase: 'baseline',
@@ -202,12 +236,32 @@ async function getParticipantPhase(userId) {
     };
   }
 
+  // 2. 全工程完了 (事後アンケート④完了)
+  if (phaseData.survey4_completed) {
+    return {
+      phase: 'complete',
+      label: '全工程完了🎉',
+      badgeClass: 'complete'
+    };
+  }
+
+  // 3. 介入開始時アンケート②回答完了 ➔ TGT実施中 (1日目〜14日目記録画面へ即時移行)
+  if (phaseData.survey2_completed) {
+    return {
+      phase: 'tgt',
+      label: `TGT実施中 (${progress.currentDayNum}日目)`,
+      badgeClass: 'tgt',
+      isMidtermDay: progress.currentDayNum === 7,
+      isFinalDay: progress.completedDays >= 14
+    };
+  }
+
   // 初回アンケート①完了日からの経過日数計算
   const survey1Date = phaseData.survey1_date || getTodayString();
   const todayStr = getTodayString();
   const diffDaysFromSurvey1 = getDaysBetween(survey1Date, todayStr);
 
-  // 2. 初回アンケート①完了後、7日未満 ➔ "waiting" (7日間待機期)
+  // 4. 初回アンケート①完了後、7日未満かつアンケート②未回答 ➔ "waiting" (7日間待機期)
   if (diffDaysFromSurvey1 < 7) {
     const daysLeft = 7 - diffDaysFromSurvey1;
     const startDateObj = new Date(survey1Date);
@@ -223,31 +277,11 @@ async function getParticipantPhase(userId) {
     };
   }
 
-  // 3. 7日間待機終了直後、かつ介入開始時アンケート②未回答 ➔ "pre_intervention" (1日目記入直前)
-  if (!phaseData.survey2_completed) {
-    return {
-      phase: 'pre_intervention',
-      label: '介入開始時アンケート②未回答',
-      badgeClass: 'baseline'
-    };
-  }
-
-  // 4. 全工程完了 (事後アンケート④完了)
-  if (phaseData.survey4_completed || phaseData.survey3_completed) {
-    return {
-      phase: 'complete',
-      label: '全工程完了🎉',
-      badgeClass: 'complete'
-    };
-  }
-
-  // 5. TGT実施中
+  // 5. 7日間待機終了直後、かつ介入開始時アンケート②未回答 ➔ "pre_intervention" (1日目記入直前)
   return {
-    phase: 'tgt',
-    label: `TGT実施中 (${progress.currentDayNum}日目)`,
-    badgeClass: 'tgt',
-    isMidtermDay: progress.currentDayNum === 7,
-    isFinalDay: progress.completedDays >= 14
+    phase: 'pre_intervention',
+    label: '介入開始時アンケート②未回答',
+    badgeClass: 'baseline'
   };
 }
 
@@ -1092,6 +1126,23 @@ async function simulateUserPhase(userId, targetPhase) {
     phaseData.survey4_completed = true;
   }
 
+  const lowerId = String(userId).toLowerCase();
+  if (!phaseData.survey2_completed) {
+    localStorage.removeItem(`tgt_survey2_completed_${lowerId}`);
+  } else {
+    localStorage.setItem(`tgt_survey2_completed_${lowerId}`, 'true');
+  }
+  if (!phaseData.survey1_completed) {
+    localStorage.removeItem(`tgt_survey1_completed_${lowerId}`);
+  } else {
+    localStorage.setItem(`tgt_survey1_completed_${lowerId}`, 'true');
+  }
+  if (!phaseData.survey4_completed) {
+    localStorage.removeItem(`tgt_survey4_completed_${lowerId}`);
+  } else {
+    localStorage.setItem(`tgt_survey4_completed_${lowerId}`, 'true');
+  }
+
   await saveUserPhaseData(userId, phaseData);
   showToast(`被験者「${userId}」のステータスを更新しました。`);
   await updateAdminView();
@@ -1493,15 +1544,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             survey1_date: targetDate,
             survey2_completed: false,
             survey3_completed: false,
-            survey4_completed: false,
-            updated_at: new Date().toISOString()
+            survey4_completed: false
           }]);
         } else if (p.id === 'apple') {
           // apple の日付を 2026-09-24 に補正
           await supabase.from('user_phases').update({
             survey1_completed: true,
-            survey1_date: '2026-09-24',
-            updated_at: new Date().toISOString()
+            survey1_date: '2026-09-24'
           }).eq('user_id', 'apple');
         }
       }
@@ -1948,9 +1997,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (survey2Btn) {
     survey2Btn.addEventListener('click', async () => {
       const userId = state.currentUser;
-      if (!userId) return;
+      if (!userId) {
+        showToast('ログインが必要です。');
+        return;
+      }
+
+      // DOMを即座に記録入力フォーム表示へ切り替え
+      const interventionCard = document.getElementById('intervention-survey-card');
+      const mainWrapper = document.getElementById('tgt-main-wrapper');
+      if (interventionCard) interventionCard.classList.add('hidden');
+      if (mainWrapper) mainWrapper.classList.remove('hidden');
 
       const phaseData = await getUserPhaseData(userId);
+      phaseData.survey1_completed = true;
+      if (!phaseData.survey1_date) {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        phaseData.survey1_date = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      }
       phaseData.survey2_completed = true;
       await saveUserPhaseData(userId, phaseData);
 
