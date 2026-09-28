@@ -24,6 +24,9 @@ let state = {
   drafts: {},      // ローカル/クラウド共通: 下書き（常に端末ローカルに保存）
 };
 
+// グローバル選択日付
+let currentSelectedRecordDate = null;
+
 const DEFAULT_SURVEY_URLS = {
   survey1: 'https://forms.gle/6neenACKZ4Nxs26a6', // ① 初回アンケート
   survey2: 'https://forms.gle/2197caaQaUsnhHAm7', // ② 介入開始時アンケート
@@ -88,49 +91,58 @@ async function getUserPhaseData(userId) {
   if (supabase) {
     try {
       // 2. user_phases クラウドテーブルから最新フェーズを取得して論理和マージ (テーブル非存在時エラー安全保護)
-      const { data: cloudPhase } = await supabase
-        .from('user_phases')
-        .select('*')
-        .ilike('user_id', userId)
-        .maybeSingle()
-        .catch(() => ({ data: null }));
+      try {
+        const { data: cloudPhase } = await supabase
+          .from('user_phases')
+          .select('*')
+          .ilike('user_id', userId)
+          .maybeSingle();
 
-      if (cloudPhase) {
-        phaseData.survey1_completed = phaseData.survey1_completed || !!cloudPhase.survey1_completed;
-        phaseData.survey1_date = phaseData.survey1_date || cloudPhase.survey1_date;
-        phaseData.survey2_completed = phaseData.survey2_completed || !!cloudPhase.survey2_completed;
-        phaseData.survey3_completed = phaseData.survey3_completed || !!cloudPhase.survey3_completed;
-        phaseData.survey4_completed = phaseData.survey4_completed || !!cloudPhase.survey4_completed;
+        if (cloudPhase) {
+          phaseData.survey1_completed = phaseData.survey1_completed || !!cloudPhase.survey1_completed;
+          phaseData.survey1_date = phaseData.survey1_date || cloudPhase.survey1_date;
+          phaseData.survey2_completed = phaseData.survey2_completed || !!cloudPhase.survey2_completed;
+          phaseData.survey3_completed = phaseData.survey3_completed || !!cloudPhase.survey3_completed;
+          phaseData.survey4_completed = phaseData.survey4_completed || !!cloudPhase.survey4_completed;
+        }
+      } catch (qpErr) {
+        console.warn("user_phases fetch warning:", qpErr);
       }
 
       // 3. users クラウドテーブルの signup_date を取得 (管理者設定マスター)
-      const { data: userData } = await supabase
-        .from('users')
-        .select('signup_date')
-        .ilike('id', userId)
-        .maybeSingle()
-        .catch(() => ({ data: null }));
+      try {
+        const { data: userData } = await supabase
+          .from('users')
+          .select('signup_date')
+          .ilike('id', userId)
+          .maybeSingle();
 
-      if (userData && userData.signup_date) {
-        phaseData.survey1_completed = true;
-        if (!phaseData.survey1_date) {
-          phaseData.survey1_date = userData.signup_date;
+        if (userData && userData.signup_date) {
+          phaseData.survey1_completed = true;
+          if (!phaseData.survey1_date) {
+            phaseData.survey1_date = userData.signup_date;
+          }
         }
+      } catch (quErr) {
+        console.warn("users fetch warning:", quErr);
       }
 
       // 4. records クラウドテーブルに記入データがある場合
-      const { data: userRecs } = await supabase
-        .from('records')
-        .select('date, timestamp')
-        .ilike('user_id', userId)
-        .order('timestamp', { ascending: true })
-        .limit(1)
-        .catch(() => ({ data: null }));
+      try {
+        const { data: userRecs } = await supabase
+          .from('records')
+          .select('date, timestamp')
+          .ilike('user_id', userId)
+          .order('timestamp', { ascending: true })
+          .limit(1);
 
-      if (userRecs && userRecs.length > 0) {
-        phaseData.survey1_completed = true;
-        phaseData.survey1_date = phaseData.survey1_date || userRecs[0].date;
-        phaseData.survey2_completed = true;
+        if (userRecs && userRecs.length > 0) {
+          phaseData.survey1_completed = true;
+          phaseData.survey1_date = phaseData.survey1_date || userRecs[0].date;
+          phaseData.survey2_completed = true;
+        }
+      } catch (qrErr) {
+        console.warn("records fetch warning:", qrErr);
       }
 
       // 状態がTrueに確定したものは個別キーにも永続化保存
@@ -177,13 +189,17 @@ async function saveUserPhaseData(userId, data) {
     try {
       // 1. users テーブルの signup_date も確実に同時更新
       if (merged.survey1_completed && merged.survey1_date) {
-        const { data: existingUser } = await supabase.from('users').select('password').ilike('id', userId).maybeSingle();
-        const userPw = (existingUser && existingUser.password) || (state.users && state.users[userId] && state.users[userId].password) || 'pass123';
-        await supabase.from('users').upsert([{
-          id: (existingUser && existingUser.id) || userId,
-          password: userPw,
-          signup_date: merged.survey1_date
-        }], { onConflict: 'id' }).catch(() => {});
+        try {
+          const { data: existingUser } = await supabase.from('users').select('password').ilike('id', userId).maybeSingle();
+          const userPw = (existingUser && existingUser.password) || (state.users && state.users[userId] && state.users[userId].password) || 'pass123';
+          await supabase.from('users').upsert([{
+            id: (existingUser && existingUser.id) || userId,
+            password: userPw,
+            signup_date: merged.survey1_date
+          }], { onConflict: 'id' });
+        } catch (e) {
+          console.warn("signup_date upsert warning:", e);
+        }
       }
 
       // 2. user_phases テーブルの更新・挿入
@@ -196,24 +212,30 @@ async function saveUserPhaseData(userId, data) {
         survey4_completed: !!merged.survey4_completed
       };
 
-      const { data: existing } = await supabase
-        .from('user_phases')
-        .select('id')
-        .ilike('user_id', userId)
-        .maybeSingle();
+      let existing = null;
+      try {
+        const res = await supabase
+          .from('user_phases')
+          .select('id')
+          .ilike('user_id', userId)
+          .maybeSingle();
+        existing = res.data;
+      } catch (e) {
+        console.warn("user_phases check warning:", e);
+      }
 
       if (existing && existing.id) {
         const { error: upErr } = await supabase.from('user_phases').update(payload).eq('id', existing.id);
         if (upErr) {
           console.warn("user_phases update error:", upErr);
-          await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' }).catch(() => {});
+          try { await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' }); } catch (e) {}
         }
       } else {
         payload.id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : undefined;
         const { error: insErr } = await supabase.from('user_phases').insert([payload]);
         if (insErr) {
           console.warn("user_phases insert error:", insErr);
-          await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' }).catch(() => {});
+          try { await supabase.from('user_phases').upsert([payload], { onConflict: 'user_id' }); } catch (e) {}
         }
       }
     } catch (err) {
@@ -440,16 +462,22 @@ async function getParticipantProgress(userId) {
   let signupDateStr = getTodayString();
   let userRecords = [];
 
+  const localRecords = (state.records && state.records[userId]) || [];
+
   if (supabase) {
-    // クラウドからユーザー登録日を取得
-    const { data: userData } = await supabase.from('users').select('signup_date').eq('id', userId).single();
-    if (userData) {
-      signupDateStr = userData.signup_date;
-    }
-    // クラウドからユーザーの全レコードを取得
-    const { data: recs } = await supabase.from('records').select('*').eq('user_id', userId);
-    if (recs) {
-      userRecords = recs;
+    try {
+      // クラウドからユーザー登録日を取得
+      const { data: userData } = await supabase.from('users').select('signup_date').ilike('id', userId).maybeSingle();
+      if (userData && userData.signup_date) {
+        signupDateStr = userData.signup_date;
+      }
+      // クラウドからユーザーの全レコードを取得
+      const { data: recs } = await supabase.from('records').select('*').ilike('user_id', userId);
+      if (recs && recs.length > 0) {
+        userRecords = recs;
+      }
+    } catch (err) {
+      console.warn("getParticipantProgress cloud fetch warning:", err);
     }
   } else {
     // ローカルストレージから取得
@@ -457,8 +485,17 @@ async function getParticipantProgress(userId) {
     if (user) {
       signupDateStr = user.signupDate;
     }
-    userRecords = state.records[userId] || [];
   }
+
+  // ローカルレコードとクラウドレコードのマージ（日付で重複排除、最新タイムスタンプを優先）
+  const mergedMap = new Map();
+  userRecords.forEach(r => mergedMap.set(r.date, r));
+  localRecords.forEach(r => {
+    if (!mergedMap.has(r.date) || (r.timestamp && r.timestamp >= (mergedMap.get(r.date).timestamp || 0))) {
+      mergedMap.set(r.date, r);
+    }
+  });
+  userRecords = Array.from(mergedMap.values());
 
   // 1日目の開始基準日: 初回アンケート①完了日(survey1_date) ➔ 最古の記録日 ➔ 初回アンケート完了前は今日
   const phaseData = await getUserPhaseData(userId);
@@ -593,9 +630,6 @@ async function updateRecordView() {
   document.getElementById('progress-count').innerText = `${progress.completedDays} / 14日`;
   document.getElementById('progress-remaining').innerText = `あと${progress.remainingDays}日`;
   document.getElementById('progress-percentage').innerText = `${progress.percentage}%`;
-
-// グローバル選択日付
-let currentSelectedRecordDate = null;
 
 // 対象日付の選択肢ドロップダウンを生成
 function setupTargetDateSelector(userId, progress) {
@@ -1750,14 +1784,26 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       saveToLocalStorage();
 
-      // 2. Supabase クラウドデータベースとの同期 (エラー時もローカルデータは安全に維持)
+      // 2. 完了画面へ即時遷移してユーザー体験を爆速化
+      showView('complete-view');
+      clearDraft(userId);
+      showToast(`${targetDate} の記録を保存しました！`);
+
+      // 表示の更新を即時実行
+      try {
+        await updateCompleteView();
+      } catch (viewErr) {
+        console.warn("Complete view update warning:", viewErr);
+      }
+
+      // 3. Supabase クラウドデータベースとの非同期同期 (バックグラウンド処理)
       if (supabase) {
         try {
-          // 既存レコードの検索
+          // 既存レコードの検索 (大文字・小文字表記ブレ吸収 ilike 検索)
           const { data: existingRec } = await supabase
             .from('records')
             .select('id')
-            .eq('user_id', userId)
+            .ilike('user_id', userId)
             .eq('date', targetDate)
             .maybeSingle();
 
@@ -1791,15 +1837,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      showToast(`${targetDate} の記録を保存しました！`);
-      clearDraft(userId);
-
-      // 3. 完了画面へ遷移して表示更新
-      showView('complete-view');
-      await updateCompleteView();
-
       if (state.isAdmin) {
-        await updateAdminView();
+        try {
+          await updateAdminView();
+        } catch (adminErr) {
+          console.warn("Admin view update warning:", adminErr);
+        }
       }
     } catch (err) {
       console.error('Record save error:', err);
