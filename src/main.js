@@ -1901,15 +1901,30 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
         }
 
+        const userPayload = { id: newUserId, password: newPassword };
         const { error: insertError } = await supabase
           .from('users')
-          .insert([{ id: newUserId, password: newPassword, signup_date: null }]);
+          .insert([userPayload]);
 
         if (insertError) {
-          showToast('被験者アカウントの登録に失敗しました。');
-          console.error(insertError);
-          return;
+          console.warn("users insert error, trying upsert:", insertError);
+          const { error: upsertError } = await supabase
+            .from('users')
+            .upsert([userPayload], { onConflict: 'id' });
+
+          if (upsertError) {
+            showToast('被験者アカウントの登録に失敗しました。');
+            console.error(upsertError);
+            return;
+          }
         }
+
+        // ローカルStateにも同期
+        state.users[newUserId] = {
+          password: newPassword,
+          signupDate: todayStr
+        };
+        saveToLocalStorage();
 
         showToast(`被験者ID「${newUserId}」を作成しました。`);
       } catch (err) {
