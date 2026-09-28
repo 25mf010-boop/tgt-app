@@ -90,7 +90,7 @@ async function getUserPhaseData(userId) {
 
   if (supabase) {
     try {
-      // 2. user_phases クラウドテーブルから最新フェーズを取得して論理和マージ (テーブル非存在時エラー安全保護)
+      // 2. user_phases クラウドテーブルから最新フェーズを取得 (クラウド優先マスター)
       try {
         const { data: cloudPhase } = await supabase
           .from('user_phases')
@@ -99,11 +99,11 @@ async function getUserPhaseData(userId) {
           .maybeSingle();
 
         if (cloudPhase) {
-          phaseData.survey1_completed = phaseData.survey1_completed || !!cloudPhase.survey1_completed;
-          phaseData.survey1_date = phaseData.survey1_date || cloudPhase.survey1_date;
-          phaseData.survey2_completed = phaseData.survey2_completed || !!cloudPhase.survey2_completed;
-          phaseData.survey3_completed = phaseData.survey3_completed || !!cloudPhase.survey3_completed;
-          phaseData.survey4_completed = phaseData.survey4_completed || !!cloudPhase.survey4_completed;
+          phaseData.survey1_completed = !!cloudPhase.survey1_completed;
+          phaseData.survey1_date = cloudPhase.survey1_date || null;
+          phaseData.survey2_completed = !!cloudPhase.survey2_completed;
+          phaseData.survey3_completed = !!cloudPhase.survey3_completed;
+          phaseData.survey4_completed = !!cloudPhase.survey4_completed;
         }
       } catch (qpErr) {
         console.warn("user_phases fetch warning:", qpErr);
@@ -117,8 +117,7 @@ async function getUserPhaseData(userId) {
           .ilike('id', userId)
           .maybeSingle();
 
-        if (userData && userData.signup_date) {
-          phaseData.survey1_completed = true;
+        if (userData && userData.signup_date && phaseData.survey1_completed) {
           if (!phaseData.survey1_date) {
             phaseData.survey1_date = userData.signup_date;
           }
@@ -145,11 +144,26 @@ async function getUserPhaseData(userId) {
         console.warn("records fetch warning:", qrErr);
       }
 
-      // 状態がTrueに確定したものは個別キーにも永続化保存
-      if (phaseData.survey1_completed) localStorage.setItem(`tgt_survey1_completed_${lowerId}`, 'true');
-      if (phaseData.survey1_date) localStorage.setItem(`tgt_survey1_date_${lowerId}`, phaseData.survey1_date);
-      if (phaseData.survey2_completed) localStorage.setItem(`tgt_survey2_completed_${lowerId}`, 'true');
-      if (phaseData.survey4_completed) localStorage.setItem(`tgt_survey4_completed_${lowerId}`, 'true');
+      // 状態がTrueのものは個別キーに保存、Falseのものはクリーンアップ
+      if (phaseData.survey1_completed) {
+        localStorage.setItem(`tgt_survey1_completed_${lowerId}`, 'true');
+        if (phaseData.survey1_date) localStorage.setItem(`tgt_survey1_date_${lowerId}`, phaseData.survey1_date);
+      } else {
+        localStorage.removeItem(`tgt_survey1_completed_${lowerId}`);
+        localStorage.removeItem(`tgt_survey1_date_${lowerId}`);
+      }
+
+      if (phaseData.survey2_completed) {
+        localStorage.setItem(`tgt_survey2_completed_${lowerId}`, 'true');
+      } else {
+        localStorage.removeItem(`tgt_survey2_completed_${lowerId}`);
+      }
+
+      if (phaseData.survey4_completed) {
+        localStorage.setItem(`tgt_survey4_completed_${lowerId}`, 'true');
+      } else {
+        localStorage.removeItem(`tgt_survey4_completed_${lowerId}`);
+      }
 
       // ローカルストレージへ最新の統合状態を全キー表記に同期保存
       allPhases[userId] = phaseData;
@@ -1510,13 +1524,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     { id: 'forest', password: 'f28', survey1_date: '2026-09-25', completed: true },
     { id: 'sunny', password: 'w17', survey1_date: '2026-09-25', completed: true },
     { id: 'moon', password: 'y61', survey1_date: '2026-09-26', completed: true },
-    { id: 'peach', password: 'a34', survey1_date: '2026-09-28', completed: false },
-    { id: 'cherry', password: 'm70', survey1_date: '2026-09-28', completed: false },
-    { id: 'melon', password: 's09', survey1_date: '2026-09-28', completed: false },
-    { id: 'river', password: 'k41', survey1_date: '2026-09-28', completed: false },
-    { id: 'star', password: 'h39', survey1_date: '2026-09-28', completed: false },
-    { id: 'pearl', password: 'j37', survey1_date: '2026-09-28', completed: false },
-    { id: 'breeze', password: 'e45', survey1_date: '2026-09-29', completed: false },
+    { id: 'peach', password: 'a34', survey1_date: '2026-09-28', completed: true },
+    { id: 'cherry', password: 'm70', survey1_date: '2026-09-28', completed: true },
+    { id: 'melon', password: 's09', survey1_date: '2026-09-28', completed: true },
+    { id: 'river', password: 'k41', survey1_date: '2026-09-28', completed: true },
+    { id: 'star', password: 'h39', survey1_date: '2026-09-28', completed: true },
+    { id: 'pearl', password: 'j37', survey1_date: '2026-09-28', completed: true },
+    { id: 'breeze', password: 'e45', survey1_date: '2026-09-29', completed: true },
     { id: 'maple', password: 'v78', survey1_date: '2026-09-29', completed: false },
     { id: 'flower', password: 'b92', survey1_date: '2026-09-30', completed: false },
     { id: 'clover', password: 'c54', survey1_date: '2026-09-30', completed: false },
@@ -1575,7 +1589,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       for (const p of OFFICIAL_PARTICIPANTS) {
         const existing = existingMap.get(p.id.toLowerCase());
-        const initialDate = p.id === 'apple' ? '2026-09-24' : null;
+        const initialDate = p.id === 'apple' ? '2026-09-24' : (p.completed ? p.survey1_date : null);
 
         if (!existing) {
           await supabase.from('users').insert([{ id: p.id, password: p.password, signup_date: initialDate }]);
@@ -1590,28 +1604,47 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // (3) 公式24名全員の user_phases クラウドテーブルを一括事前生成・同期
-      const { data: existingPhases } = await supabase.from('user_phases').select('user_id, id');
-      const phaseSet = new Set((existingPhases || []).map(ph => String(ph.user_id).toLowerCase()));
+      const { data: existingPhases } = await supabase.from('user_phases').select('*');
+      const phaseMap = new Map((existingPhases || []).map(ph => [String(ph.user_id).toLowerCase(), ph]));
 
       for (const p of OFFICIAL_PARTICIPANTS) {
-        const targetDate = p.id === 'apple' ? '2026-09-24' : null;
-        const isCompleted = !!targetDate;
+        const lowerId = p.id.toLowerCase();
+        const existingPh = phaseMap.get(lowerId);
 
-        if (!phaseSet.has(p.id.toLowerCase())) {
+        if (!existingPh) {
           await supabase.from('user_phases').insert([{
             user_id: p.id,
-            survey1_completed: isCompleted,
-            survey1_date: targetDate,
+            survey1_completed: p.completed,
+            survey1_date: p.completed ? p.survey1_date : null,
             survey2_completed: false,
             survey3_completed: false,
             survey4_completed: false
           }]);
-        } else if (p.id === 'apple') {
-          // apple の日付を 2026-09-24 に補正
-          await supabase.from('user_phases').update({
-            survey1_completed: true,
-            survey1_date: '2026-09-24'
-          }).eq('user_id', 'apple');
+        } else {
+          if (p.completed) {
+            // 初回アンケート完了済みの13名 (river含む) は survey1_completed: true と survey1_date を同期
+            await supabase.from('user_phases').update({
+              survey1_completed: true,
+              survey1_date: p.survey1_date
+            }).eq('id', existingPh.id);
+
+            localStorage.setItem(`tgt_survey1_completed_${lowerId}`, 'true');
+            localStorage.setItem(`tgt_survey1_date_${lowerId}`, p.survey1_date);
+          } else {
+            // 未完了の11名 (maple, flower, clover, ocean, olive, amber, coral, rose, mint, pine, stone) は未回答カード表示
+            const { data: recs } = await supabase.from('records').select('id').ilike('user_id', p.id).limit(1);
+            if (!recs || recs.length === 0) {
+              await supabase.from('user_phases').update({
+                survey1_completed: false,
+                survey1_date: null,
+                survey2_completed: false
+              }).eq('id', existingPh.id);
+
+              localStorage.removeItem(`tgt_survey1_completed_${lowerId}`);
+              localStorage.removeItem(`tgt_survey1_date_${lowerId}`);
+              localStorage.removeItem(`tgt_survey2_completed_${lowerId}`);
+            }
+          }
         }
       }
     } catch (seedErr) {
