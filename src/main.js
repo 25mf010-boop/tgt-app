@@ -512,20 +512,31 @@ async function getParticipantProgress(userId) {
   });
   userRecords = Array.from(mergedMap.values());
 
-  // TGT介入期 1日目の開始基準日: survey2_date ➔ (survey1_date + 7日) ➔ 最古の記録日 ➔ 今日
+  // TGT介入期 1日目の開始基準日
   const phaseData = await getUserPhaseData(userId);
   let tgtStartDateStr = getTodayString();
 
-  if (phaseData.survey2_date) {
+  const recordDatesSorted = userRecords.map(r => r.date).filter(Boolean).sort();
+
+  if (recordDatesSorted.length > 0) {
+    // 1. 最優先: すでに過去の記録が保存されている場合、最古の記録日を開始日(1日目)とする
+    tgtStartDateStr = recordDatesSorted[0];
+    if (phaseData.survey2_date && phaseData.survey2_date < tgtStartDateStr) {
+      tgtStartDateStr = phaseData.survey2_date;
+    }
+  } else if (phaseData.survey2_date) {
+    // 2. 介入開始時アンケート②の回答日
     tgtStartDateStr = phaseData.survey2_date;
   } else if (phaseData.survey1_date) {
+    // 3. 初回アンケート①回答日 + 7日 (ただし未来の日付になっている場合は今日を開始上限とする)
     const s1Obj = new Date(phaseData.survey1_date);
     s1Obj.setDate(s1Obj.getDate() + 7);
-    tgtStartDateStr = s1Obj.getFullYear() + '-' +
+    const calculatedStart = s1Obj.getFullYear() + '-' +
       String(s1Obj.getMonth() + 1).padStart(2, '0') + '-' +
       String(s1Obj.getDate()).padStart(2, '0');
-  } else if (userRecords.length > 0) {
-    tgtStartDateStr = userRecords.map(r => r.date).sort()[0];
+    
+    const todayStr = getTodayString();
+    tgtStartDateStr = (calculatedStart > todayStr) ? todayStr : calculatedStart;
   }
 
   const todayStr = getTodayString();
@@ -660,6 +671,10 @@ async function updateRecordView() {
   document.getElementById('progress-remaining').innerText = `あと${progress.remainingDays}日`;
   document.getElementById('progress-percentage').innerText = `${progress.percentage}%`;
 
+  // 14日間の進捗リストの生成
+  renderProgressList(userId, progress);
+}
+
 // 対象日付の選択肢ドロップダウンを生成
 function setupTargetDateSelector(userId, progress) {
   state.lastParticipantProgress = progress;
@@ -672,17 +687,41 @@ function setupTargetDateSelector(userId, progress) {
   const userRecords = progress.userRecords || [];
   const recordDateSet = new Set(userRecords.map(r => r.date));
 
-  const datesList = [];
-  const currentDayNum = progress.currentDayNum;
-
-  for (let i = 1; i <= currentDayNum; i++) {
-    const d = new Date(signupDateStr);
-    d.setDate(d.getDate() + (i - 1));
-    const dStr = d.getFullYear() + '-' +
-      String(d.getMonth() + 1).padStart(2, '0') + '-' +
-      String(d.getDate()).padStart(2, '0');
-    datesList.push({ dayNum: i, dateStr: dStr, dateObj: d });
+  // 開始日（signupDateStr）から今日（todayStr）までの日付、および登録済み全レコードの日付を網羅
+  const allDateStrings = new Set();
+  
+  let tempDate = new Date(signupDateStr);
+  const todayObj = new Date(todayStr);
+  
+  if (tempDate > todayObj) {
+    tempDate = new Date(todayStr);
   }
+
+  while (tempDate <= todayObj) {
+    const dStr = tempDate.getFullYear() + '-' +
+      String(tempDate.getMonth() + 1).padStart(2, '0') + '-' +
+      String(tempDate.getDate()).padStart(2, '0');
+    allDateStrings.add(dStr);
+    tempDate.setDate(tempDate.getDate() + 1);
+  }
+
+  userRecords.forEach(r => {
+    if (r.date) allDateStrings.add(r.date);
+  });
+
+  const sortedDates = Array.from(allDateStrings).sort();
+  const baseStartDate = sortedDates[0] || signupDateStr;
+
+  const datesList = sortedDates.map(dStr => {
+    const dayNum = getDaysBetween(baseStartDate, dStr) + 1;
+    const parts = dStr.split('-');
+    const dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+    return {
+      dayNum,
+      dateStr: dStr,
+      dateObj
+    };
+  });
 
   // 最新日付（今日）を一番上に
   datesList.reverse();
@@ -697,7 +736,6 @@ function setupTargetDateSelector(userId, progress) {
     const option = document.createElement('option');
     option.value = item.dateStr;
 
-    const dateFormatted = `${item.dateObj.getMonth() + 1}/${item.dateObj.getDate()}`;
     let label = `${item.dateStr} (Day ${item.dayNum})`;
     if (isToday) label += ' 【今日】';
     if (isCompleted) label += ' 💮記入済み';
@@ -772,12 +810,14 @@ function loadRecordForSelectedDate(userId, dateStr, progress) {
   }
 }
 
-  // 14日間の進捗リストの生成
+// 14日間の進捗リストの生成
+function renderProgressList(userId, progress) {
   const progressList = document.getElementById('progress-list');
+  if (!progressList) return;
   progressList.innerHTML = '';
 
   const signupDateStr = progress.signupDateStr;
-  const userRecords = progress.userRecords;
+  const userRecords = progress.userRecords || [];
 
   for (let i = 1; i <= 14; i++) {
     const itemDate = new Date(signupDateStr);
