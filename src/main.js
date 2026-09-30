@@ -22,6 +22,7 @@ let state = {
   users: {},       // ローカル用: { userId: { password, signupDate } }
   records: {},     // ローカル用: { userId: [ { date, timestamp, tgt1, tgt2, tgt3, memo, mood } ] }
   drafts: {},      // ローカル/クラウド共通: 下書き（常に端末ローカルに保存）
+  lastParticipantProgress: null,
 };
 
 // グローバル選択日付
@@ -511,13 +512,25 @@ async function getParticipantProgress(userId) {
   });
   userRecords = Array.from(mergedMap.values());
 
-  // 1日目の開始基準日: 初回アンケート①完了日(survey1_date) ➔ 最古の記録日 ➔ 初回アンケート完了前は今日
+  // TGT介入期 1日目の開始基準日: survey2_date ➔ (survey1_date + 7日) ➔ 最古の記録日 ➔ 今日
   const phaseData = await getUserPhaseData(userId);
-  let startDateStr = phaseData.survey1_date || (userRecords.length > 0 ? userRecords.map(r => r.date).sort()[0] : getTodayString());
+  let tgtStartDateStr = getTodayString();
+
+  if (phaseData.survey2_date) {
+    tgtStartDateStr = phaseData.survey2_date;
+  } else if (phaseData.survey1_date) {
+    const s1Obj = new Date(phaseData.survey1_date);
+    s1Obj.setDate(s1Obj.getDate() + 7);
+    tgtStartDateStr = s1Obj.getFullYear() + '-' +
+      String(s1Obj.getMonth() + 1).padStart(2, '0') + '-' +
+      String(s1Obj.getDate()).padStart(2, '0');
+  } else if (userRecords.length > 0) {
+    tgtStartDateStr = userRecords.map(r => r.date).sort()[0];
+  }
 
   const todayStr = getTodayString();
-  const diffDays = getDaysBetween(startDateStr, todayStr);
-  const currentDayNum = Math.max(1, diffDays + 1); // 初回記録保存日を1日目とする
+  const diffDays = getDaysBetween(tgtStartDateStr, todayStr);
+  const currentDayNum = Math.max(1, diffDays + 1); // TGT介入開始日を1日目とする
 
   const recordDates = new Set(userRecords.map(r => r.date));
   const completedDays = recordDates.size;
@@ -545,7 +558,9 @@ async function getParticipantProgress(userId) {
     }
   }
 
-  return { currentDayNum, completedDays, remainingDays, streak, percentage, signupDateStr: startDateStr, userRecords };
+  const result = { currentDayNum, completedDays, remainingDays, streak, percentage, signupDateStr: tgtStartDateStr, userRecords };
+  state.lastParticipantProgress = result;
+  return result;
 }
 
 // 記録入力画面の表示を更新する
@@ -647,6 +662,7 @@ async function updateRecordView() {
 
 // 対象日付の選択肢ドロップダウンを生成
 function setupTargetDateSelector(userId, progress) {
+  state.lastParticipantProgress = progress;
   const selectEl = document.getElementById('target-date-select');
   if (!selectEl) return;
 
@@ -700,8 +716,25 @@ function setupTargetDateSelector(userId, progress) {
 // 選択された日付の記録をフォームに読み込む
 function loadRecordForSelectedDate(userId, dateStr, progress) {
   currentSelectedRecordDate = dateStr;
-  const userRecords = progress ? progress.userRecords : (state.records[userId] || []);
-  const targetRecord = userRecords.find(r => r.date === dateStr);
+
+  const selectEl = document.getElementById('target-date-select');
+  if (selectEl && selectEl.value !== dateStr) {
+    selectEl.value = dateStr;
+  }
+
+  const activeProgress = progress || state.lastParticipantProgress;
+  let userRecords = activeProgress ? (activeProgress.userRecords || []) : [];
+  const localRecs = state.records[userId] || [];
+
+  const mergedMap = new Map();
+  userRecords.forEach(r => mergedMap.set(r.date, r));
+  localRecs.forEach(r => {
+    if (!mergedMap.has(r.date) || (r.timestamp && r.timestamp >= (mergedMap.get(r.date).timestamp || 0))) {
+      mergedMap.set(r.date, r);
+    }
+  });
+  const allRecords = Array.from(mergedMap.values());
+  const targetRecord = allRecords.find(r => r.date === dateStr);
 
   const statusBadge = document.getElementById('target-date-status-text');
   const saveBtn = document.getElementById('save-btn');
@@ -823,6 +856,7 @@ function loadRecordForSelectedDate(userId, dateStr, progress) {
           if (selectEl) {
             selectEl.value = itemDateStr;
             loadRecordForSelectedDate(userId, itemDateStr, progress);
+            showToast(`📅 ${itemDateStr} の記録画面に切替わりました`);
             document.getElementById('record-form').scrollIntoView({ behavior: 'smooth' });
           }
         });
@@ -838,6 +872,7 @@ function loadRecordForSelectedDate(userId, dateStr, progress) {
         if (selectEl) {
           selectEl.value = itemDateStr;
           loadRecordForSelectedDate(userId, itemDateStr, progress);
+          showToast(`📅 ${itemDateStr} の記録画面に切替わりました`);
           document.getElementById('record-form').scrollIntoView({ behavior: 'smooth' });
         }
       });
@@ -1778,8 +1813,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       const selectedDate = e.target.value;
       const userId = state.currentUser;
       if (userId) {
-        const progress = await getParticipantProgress(userId);
-        loadRecordForSelectedDate(userId, selectedDate, progress);
+        // 即座（0ms）にUIの記録フォーム選択日付を切り替え
+        loadRecordForSelectedDate(userId, selectedDate, null);
+
+        // トースト通知表示
+        showToast(`📅 ${selectedDate} の記録画面に切替わりました`);
+
+        // フォーム位置へスムーズスクロール
+        const recordForm = document.getElementById('record-form');
+        if (recordForm) {
+          recordForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // バックグラウンドでクラウドデータを非同期同期
+        try {
+          const progress = await getParticipantProgress(userId);
+          if (progress) {
+            loadRecordForSelectedDate(userId, selectedDate, progress);
+          }
+        } catch (err) {
+          console.error('Progress sync error:', err);
+        }
       }
     });
   }
