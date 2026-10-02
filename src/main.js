@@ -1557,7 +1557,21 @@ async function downloadDataAsCSV() {
   showToast('CSVデータをダウンロードしました。');
 }
 
-// --- 通知機能の実装 ---
+// --- Web Push 通知機能の実装 (VAPID 方式) ---
+const VAPID_PUBLIC_KEY = "BIA1Xa0r-kMB5LO_krJFncggRLtBr8-YcSLzx5mF8lWUPh4dpDyac7yM2_6sBcOmALl_-ahKk_2yMAGBHusNGt0";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 
 function updateNotificationStatus(permission) {
   const statusEl = document.getElementById('notification-status');
@@ -1567,11 +1581,11 @@ function updateNotificationStatus(permission) {
   const currentPermission = permission || (('Notification' in window) ? Notification.permission : 'unsupported');
 
   if (currentPermission === 'granted') {
-    statusEl.innerHTML = '🟢 通知は有効です。毎日20:00に届きます。';
+    statusEl.innerHTML = '🟢 通知は有効です。毎日20:00にロック画面にリマインドが届きます。';
     btn.innerText = '通知設定済み (有効)';
     btn.disabled = true;
   } else if (currentPermission === 'denied') {
-    statusEl.innerHTML = '🔴 通知が拒否されています。ブラウザ設定で許可してください。';
+    statusEl.innerHTML = '🔴 通知がブロックされています。ブラウザ設定で許可してください。';
     btn.innerText = '通知がブロックされています';
     btn.disabled = true;
   } else {
@@ -1579,6 +1593,124 @@ function updateNotificationStatus(permission) {
     btn.innerText = '通知を許可する';
     btn.disabled = false;
   }
+}
+
+async function requestNotificationPermission() {
+  if (!('Notification' in window)) {
+    showToast('お使いの環境はWeb通知に対応していません。');
+    updateNotificationStatus('unsupported');
+    return;
+  }
+
+  try {
+    const permission = await Notification.requestPermission();
+    updateNotificationStatus(permission);
+
+    if (permission === 'granted') {
+      showToast('通知を許可しました！');
+      await registerWebPushSubscription();
+    } else if (permission === 'denied') {
+      showToast('通知が拒否されました。ブラウザ設定から許可してください。');
+    }
+  } catch (err) {
+    console.error('Notification permission error:', err);
+    showToast('通知の許可設定中に問題が発生しました。');
+  }
+}
+
+async function registerWebPushSubscription(customTime) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    console.log('Web Push PushManager is not supported');
+    return;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription) {
+      const convertedKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: convertedKey
+      });
+    }
+
+    const userId = state.currentUser;
+    if (userId && subscription) {
+      const subJson = subscription.toJSON();
+      localStorage.setItem(`tgt_push_sub_${userId}`, JSON.stringify(subJson));
+
+      const notifyTime = customTime || localStorage.getItem('tgt_notification_time') || localStorage.getItem('tgt_notify_time') || '20:00';
+
+      if (supabase) {
+        try {
+          const { data: existing } = await supabase
+            .from('push_subscriptions')
+            .select('id')
+            .ilike('user_id', userId)
+            .maybeSingle();
+
+          const payload = {
+            user_id: userId,
+            subscription: subJson,
+            preferred_time: notifyTime,
+            updated_at: new Date().toISOString()
+          };
+
+          if (existing && existing.id) {
+            await supabase.from('push_subscriptions').update(payload).eq('id', existing.id);
+          } else {
+            await supabase.from('push_subscriptions').insert([payload]);
+          }
+          console.log(`PushSubscription registered with preferred_time ${notifyTime} successfully.`);
+        } catch (cloudErr) {
+          console.warn('PushSubscription cloud sync warning:', cloudErr);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('PushSubscription registration error:', err);
+  }
+}
+
+async function sendTestNotification() {
+  if (!('Notification' in window)) {
+    showToast('通知に対応していない環境です。');
+    return;
+  }
+
+  if (Notification.permission !== 'granted') {
+    showToast('先に「通知を許可する」ボタンを押してください。');
+    return;
+  }
+
+  showToast('5秒後にテスト通知を送信します（アプリを閉じても届きます）。');
+
+  setTimeout(async () => {
+    if ('serviceWorker' in navigator) {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        if (registration && registration.showNotification) {
+          await registration.showNotification('【テスト】今日の記録', {
+            body: 'リマインダー通知のテストです。今日の良かったことを振り返りましょう！🌿',
+            icon: '/icons.svg',
+            badge: '/favicon.svg',
+            tag: 'tgt-test-notification',
+            renotify: true,
+            data: { url: '/' }
+          });
+          return;
+        }
+      } catch (swErr) {
+        console.warn('SW notification fallback error:', swErr);
+      }
+    }
+    new Notification('【テスト】今日の記録', {
+      body: 'リマインダー通知のテストです。今日の良かったことを振り返りましょう！🌿',
+      icon: '/icons.svg'
+    });
+  }, 5000);
 }
 
 // --- 初期セットアップ & イベントハンドラ登録 ---
@@ -2027,21 +2159,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // 通知テスト
-  document.getElementById('test-notification-btn').addEventListener('click', () => {
-    showToast('5秒後にテスト通知を送信します。');
-    setTimeout(() => {
-      sendLocalNotification(
-        '【テスト】今日の記録',
-        'リマインダー通知のテストです。今日の良かったことを振り返りましょう！🍁'
-      );
-    }, 5000);
+  document.getElementById('test-notification-btn').addEventListener('click', async () => {
+    await sendTestNotification();
   });
 
   // 通知時間保存
-  document.getElementById('save-time-btn').addEventListener('click', () => {
+  document.getElementById('save-time-btn').addEventListener('click', async () => {
     const timeVal = document.getElementById('notification-time').value;
     localStorage.setItem('tgt_notification_time', timeVal);
+    localStorage.setItem('tgt_notify_time', timeVal);
     showToast(`通知時間を ${timeVal} に設定しました。`);
+    await registerWebPushSubscription(timeVal);
   });
 
   // 管理者ダッシュボードログアウト
@@ -2375,42 +2503,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 });
 
-// Web Notification パーミッション要求
-async function requestNotificationPermission() {
-  if (!('Notification' in window)) {
-    showToast('お使いのブラウザは通知に対応していません。');
-    updateNotificationStatusUI();
-    return false;
-  }
-  const permission = await Notification.requestPermission();
-  updateNotificationStatusUI();
-  if (permission === 'granted') {
-    showToast('リマインド通知を許可しました！');
-    return true;
-  } else {
-    showToast('通知が拒否されました。ブラウザの設定で許可してください。');
-    return false;
-  }
-}
-
 // 通知設定の表示UI更新ヘルパー
 function updateNotificationStatusUI() {
-  const statusEl = document.getElementById('notification-status');
-
-  let msg = '※ 通知を有効にするには、ブラウザの通知許可が必要です。';
-  if (!('Notification' in window)) {
-    msg = '⚠️ お使いのブラウザは通知機能に対応していません。';
-  } else if (Notification.permission === 'granted') {
-    msg = '✅ 通知が許可されています。';
-  } else if (Notification.permission === 'denied') {
-    msg = '⚠️ 通知が拒否されています。ブラウザ設定を確認してください。';
-  }
-
-  if (statusEl) statusEl.innerText = msg;
-
-  const savedTime = localStorage.getItem('tgt_notify_time') || '20:00';
-  const timeInputMain = document.getElementById('notification-time');
-  if (timeInputMain) timeInputMain.value = savedTime;
+  updateNotificationStatus();
 }
 
 // ヘルパー: 通知送信 (Service Worker 優先 / フォールバック new Notification)
@@ -2419,7 +2514,7 @@ async function sendLocalNotification(title, body, tag) {
 
   const options = {
     body,
-    icon: '/favicon.svg',
+    icon: '/icons.svg',
     badge: '/favicon.svg',
     tag: tag || 'tgt-notification'
   };
@@ -2441,20 +2536,6 @@ async function sendLocalNotification(title, body, tag) {
   } catch (e) {
     console.error("Standard Notification failed:", e);
   }
-}
-
-// テスト通知送信
-function sendTestNotification() {
-  if (!('Notification' in window) || Notification.permission !== 'granted') {
-    showToast('先に「通知を許可する」を押してください。');
-    return;
-  }
-  sendLocalNotification(
-    '「今日はどんな1日でしたか？」',
-    '1日を振り返って、良かった3つの出来事を記録してみましょう。',
-    'tgt-test-notification'
-  );
-  showToast('テスト通知を送信しました！');
 }
 
 // 各種定時通知の自動チェック（1日目昼12:00スタート通知＆毎日のリマインド通知）
