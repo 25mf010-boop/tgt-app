@@ -31,7 +31,7 @@ let currentSelectedRecordDate = null;
 const DEFAULT_SURVEY_URLS = {
   survey1: 'https://forms.gle/6neenACKZ4Nxs26a6', // ① 初回アンケート
   survey2: 'https://forms.gle/2197caaQaUsnhHAm7', // ② 介入開始時アンケート
-  survey3: 'https://forms.gle/CLGAThX9uHh1HSbk9', // ③ 中間アンケート
+  survey3: 'https://forms.gle/znyYnoKzUSyD5k9LA', // ③ 中間アンケート (更新)
   survey4: 'https://forms.gle/netmLfrQxQieFrN86'  // ④ 事後アンケート
 };
 
@@ -40,12 +40,12 @@ function loadSurveyUrls() {
   const savedUrls = JSON.parse(localStorage.getItem('tgt_survey_urls') || '{}');
   
   let s1 = savedUrls.survey1 || DEFAULT_SURVEY_URLS.survey1;
-  let s2 = savedUrls.survey2;
-  // 旧キャッシュ (CLGAThX9uHh1HSbk9) が残っている場合は新URLに補正
-  if (!s2 || s2 === 'https://forms.gle/CLGAThX9uHh1HSbk9') {
-    s2 = DEFAULT_SURVEY_URLS.survey2;
+  let s2 = savedUrls.survey2 || DEFAULT_SURVEY_URLS.survey2;
+  // 旧キャッシュ (CLGAThX9uHh1HSbk9) や未設定の場合は新URLを最優先適用
+  let s3 = DEFAULT_SURVEY_URLS.survey3;
+  if (savedUrls.survey3 && savedUrls.survey3 !== 'https://forms.gle/CLGAThX9uHh1HSbk9') {
+    s3 = savedUrls.survey3;
   }
-  let s3 = savedUrls.survey3 || DEFAULT_SURVEY_URLS.survey3;
   let s4 = savedUrls.survey4 || DEFAULT_SURVEY_URLS.survey4;
 
   return { survey1: s1, survey2: s2, survey3: s3, survey4: s4 };
@@ -83,6 +83,9 @@ async function getUserPhaseData(userId) {
   }
   if (localStorage.getItem(`tgt_survey2_completed_${lowerId}`) === 'true') {
     phaseData.survey2_completed = true;
+  }
+  if (localStorage.getItem(`tgt_survey3_completed_${lowerId}`) === 'true') {
+    phaseData.survey3_completed = true;
   }
   if (localStorage.getItem(`tgt_survey4_completed_${lowerId}`) === 'true') {
     phaseData.survey4_completed = true;
@@ -193,6 +196,7 @@ async function saveUserPhaseData(userId, data) {
   if (merged.survey1_completed) localStorage.setItem(`tgt_survey1_completed_${lowerId}`, 'true');
   if (merged.survey1_date) localStorage.setItem(`tgt_survey1_date_${lowerId}`, merged.survey1_date);
   if (merged.survey2_completed) localStorage.setItem(`tgt_survey2_completed_${lowerId}`, 'true');
+  if (merged.survey3_completed) localStorage.setItem(`tgt_survey3_completed_${lowerId}`, 'true');
   if (merged.survey4_completed) localStorage.setItem(`tgt_survey4_completed_${lowerId}`, 'true');
 
   allPhases[userId] = merged;
@@ -288,7 +292,7 @@ async function getParticipantPhase(userId) {
       phase: 'tgt',
       label: `TGT実施中 (${progress.currentDayNum}日目)`,
       badgeClass: 'tgt',
-      isMidtermDay: progress.currentDayNum === 7,
+      isMidtermDay: progress.currentDayNum >= 7 && !phaseData.survey3_completed,
       isFinalDay: progress.completedDays >= 14
     };
   }
@@ -2362,8 +2366,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // 中間アンケート③完了ボタン
+  const survey3Btn = document.getElementById('survey3-complete-btn');
+  if (survey3Btn) {
+    survey3Btn.addEventListener('click', async () => {
+      const userId = state.currentUser;
+      if (!userId) return;
+
+      const phaseData = await getUserPhaseData(userId);
+      phaseData.survey3_completed = true;
+      await saveUserPhaseData(userId, phaseData);
+
+      const midtermBanner = document.getElementById('midterm-survey-banner');
+      if (midtermBanner) midtermBanner.classList.add('hidden');
+
+      showToast('中間アンケート③のご回答ありがとうございました！');
+      await updateRecordView();
+    });
+  }
+
   // 事後アンケート④完了ボタン
-  const survey4Btn = document.getElementById('survey4-complete-btn') || document.getElementById('survey3-complete-btn');
+  const survey4Btn = document.getElementById('survey4-complete-btn');
   if (survey4Btn) {
     survey4Btn.addEventListener('click', async () => {
       const userId = state.currentUser;

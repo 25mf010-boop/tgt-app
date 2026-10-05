@@ -126,17 +126,23 @@
         <!-- TGTメイン入力コンテンツ（TGT介入期に表示） -->
         <div id="tgt-main-wrapper" class="hidden">
           
-          <!-- 中間アンケート③告知バナー (7日目に表示) -->
+          <!-- 中間アンケート③告知バナー (7日目以降、未回答時に表示) -->
           <div id="midterm-survey-banner" class="paper-card midterm-banner-card hidden mb-3">
-            <div class="banner-flex">
+            <div class="banner-flex" style="flex-direction: column; gap: 10px; align-items: stretch;">
               <div>
                 <span class="badge-tag">7日目特別タスク</span>
-                <h3 class="banner-title">📋 中間アンケート③にご協力ください</h3>
-                <p class="banner-desc">TGT記録1週間お疲れ様です！中間アンケート③（約3分）へお答えください。</p>
+                <h3 class="banner-title">📋 中間アンケート③のご協力のお願い</h3>
+                <p class="banner-desc">TGT記録1週間お疲れ様です！本日の記録（7日目）に入力する前に、中間アンケート③（約3分）へご協力をお願いいたします。</p>
               </div>
-              <a id="survey3-link-btn" href="https://forms.gle/CLGAThX9uHh1HSbk9" target="_blank" class="btn btn-primary btn-sm">
-                アンケート③を開く ➔
-              </a>
+              <div class="text-center mt-2">
+                <a id="survey3-link-btn" href="https://forms.gle/znyYnoKzUSyD5k9LA" target="_blank" class="btn btn-primary btn-lg" style="width: 100%; display: inline-block;">
+                  📝 中間アンケート③ (Googleフォーム) を開く ➔
+                </a>
+                <p class="notice mt-2" style="margin-bottom:0;">※ 回答完了後、下のボタンを押して今日の記録に進んでください。</p>
+                <button id="survey3-complete-btn" class="btn btn-secondary mt-2" style="width: 100%;">
+                  ✅ アンケート回答完了（今日の記録に進む）
+                </button>
+              </div>
             </div>
           </div>
 
