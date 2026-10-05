@@ -1374,8 +1374,10 @@ async function updateUserPassword(userId, newPassword) {
 // 被験者別の詳細記録タイムラインを表示する
 async function showAdminUserDetail(userId) {
   let userRecords = [];
+  const progress = await getParticipantProgress(userId);
+
   if (supabase) {
-    const { data: recs } = await supabase.from('records').select('*').eq('user_id', userId);
+    const { data: recs } = await supabase.from('records').select('*').ilike('user_id', userId);
     userRecords = recs || [];
   } else {
     userRecords = state.records[userId] || [];
@@ -1388,36 +1390,52 @@ async function showAdminUserDetail(userId) {
   if (userRecords.length === 0) {
     container.innerHTML = '<p class="text-center" style="color:var(--color-text-hint); padding: 20px;">記録履歴がありません。</p>';
   } else {
-    const sortedRecords = [...userRecords].sort((a, b) => b.timestamp - a.timestamp);
+    // 記録対象日 (date) の降順、次にタイムスタンプの降順でソート
+    const sortedRecords = [...userRecords].sort((a, b) => {
+      if ((b.date || '') !== (a.date || '')) {
+        return (b.date || '').localeCompare(a.date || '');
+      }
+      return (b.timestamp || 0) - (a.timestamp || 0);
+    });
+
+    const baseStartDate = progress.signupDateStr;
 
     sortedRecords.forEach(rec => {
-      const recDate = new Date(Number(rec.timestamp)).toLocaleDateString('ja-JP', {
-        year: 'numeric', month: 'long', day: 'numeric', weekday: 'short'
-      });
-      const recTime = new Date(Number(rec.timestamp)).toLocaleTimeString('ja-JP', {
-        hour: '2-digit', minute: '2-digit'
-      });
+      const targetDateStr = rec.date || '不明';
+      const dayNum = getDaysBetween(baseStartDate, targetDateStr) + 1;
+      const dayLabel = dayNum > 0 ? ` (Day ${dayNum})` : '';
+
+      const updatedTimeStr = rec.timestamp
+        ? new Date(Number(rec.timestamp)).toLocaleString('ja-JP', {
+            year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+          })
+        : '保存日時不明';
 
       const moodEmojis = ['', '😢 しんどい', '🙁 しんどい', '😐 ふつう', '🙂 まあまあいい', '😊 とてもいい'];
       const moodText = moodEmojis[rec.mood] || 'ふつう';
 
       const item = document.createElement('div');
       item.className = 'timeline-item';
+      item.style.borderLeft = '4px solid var(--color-primary-green)';
+      item.style.marginBottom = '12px';
+      item.style.paddingLeft = '12px';
 
       let goodsHtml = '';
-      if (rec.tgt1) goodsHtml += `<div class="timeline-good">${rec.tgt1}</div>`;
-      if (rec.tgt2) goodsHtml += `<div class="timeline-good">${rec.tgt2}</div>`;
-      if (rec.tgt3) goodsHtml += `<div class="timeline-good">${rec.tgt3}</div>`;
+      if (rec.tgt1) goodsHtml += `<div class="timeline-good">1. ${rec.tgt1}</div>`;
+      if (rec.tgt2) goodsHtml += `<div class="timeline-good">2. ${rec.tgt2}</div>`;
+      if (rec.tgt3) goodsHtml += `<div class="timeline-good">3. ${rec.tgt3}</div>`;
 
       let memoHtml = '';
       if (rec.memo) {
-        memoHtml = `<div class="timeline-memo"><strong>ひとこと:</strong> ${rec.memo}</div>`;
+        memoHtml = `<div class="timeline-memo"><strong>ひとことメモ:</strong> ${rec.memo}</div>`;
       }
 
       item.innerHTML = `
-        <div class="timeline-date">
-          📅 ${recDate} ${recTime} 
-          <span class="timeline-mood">｜ 気分: ${moodText}</span>
+        <div class="timeline-date" style="font-weight: bold; font-size: 0.95rem; color: var(--color-primary-green);">
+          📅 記録対象日: ${targetDateStr}${dayLabel}
+        </div>
+        <div style="font-size: 0.78rem; color: var(--color-text-sub); margin-bottom: 6px;">
+          ⏱️ 入力・最終修正日時: ${updatedTimeStr} ｜ 気分: ${moodText}
         </div>
         <div class="timeline-goods">
           ${goodsHtml}
@@ -1520,32 +1538,37 @@ async function downloadDataAsCSV() {
     return;
   }
 
-  let csvContent = "被験者ID,登録日,記録日,記録日時,よかったこと1,よかったこと2,よかったこと3,ひとことメモ,気分(1-5)\r\n";
+  let csvContent = "被験者ID,登録日,記録対象日,何日目(Day),入力・最終修正日時,よかったこと1,よかったこと2,よかったこと3,ひとことメモ,気分(1-5)\r\n";
 
-  userList.forEach(user => {
+  for (const user of userList) {
     const userId = user.id;
-    const signupDate = user.signup_date;
-    const userRecs = allRecords.filter(r => r.user_id === userId || (r.user_id === undefined && state.records[userId]?.some(lr => lr.date === r.date)));
-
-    // ローカル保存モードの場合のフォールバック
-    const actualRecs = supabase ? userRecs : state.records[userId] || [];
+    const progress = await getParticipantProgress(userId);
+    const signupDate = user.signup_date || progress.signupDateStr;
+    const userRecs = allRecords.filter(r => String(r.user_id).toLowerCase() === String(userId).toLowerCase());
+    const actualRecs = (supabase && userRecs.length > 0) ? userRecs : (state.records[userId] || []);
 
     if (actualRecs.length === 0) {
-      csvContent += `"${userId}","${signupDate}","","","","","","",""\r\n`;
+      csvContent += `"${userId}","${signupDate}","","","","","","","",""\r\n`;
     } else {
-      actualRecs.forEach(rec => {
-        const dateStr = rec.date;
-        const timeStr = new Date(Number(rec.timestamp)).toISOString();
+      // 記録対象日で昇順ソート
+      const sortedRecs = [...actualRecs].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      sortedRecs.forEach(rec => {
+        const targetDateStr = rec.date || '';
+        const dayNum = targetDateStr ? (getDaysBetween(progress.signupDateStr, targetDateStr) + 1) : '';
+        const dayLabel = dayNum > 0 ? `Day ${dayNum}` : '';
+        const updatedTimeStr = rec.timestamp
+          ? new Date(Number(rec.timestamp)).toLocaleString('ja-JP')
+          : '';
 
         const cleanTgt1 = (rec.tgt1 || '').replace(/"/g, '""');
         const cleanTgt2 = (rec.tgt2 || '').replace(/"/g, '""');
         const cleanTgt3 = (rec.tgt3 || '').replace(/"/g, '""');
         const cleanMemo = (rec.memo || '').replace(/"/g, '""');
 
-        csvContent += `"${userId}","${signupDate}","${dateStr}","${timeStr}","${cleanTgt1}","${cleanTgt2}","${cleanTgt3}","${cleanMemo}",${rec.mood}\r\n`;
+        csvContent += `"${userId}","${signupDate}","${targetDateStr}","${dayLabel}","${updatedTimeStr}","${cleanTgt1}","${cleanTgt2}","${cleanTgt3}","${cleanMemo}",${rec.mood}\r\n`;
       });
     }
-  });
+  }
 
   const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
   const blob = new Blob([bom, csvContent], { type: 'text/csv;charset=utf-8;' });
