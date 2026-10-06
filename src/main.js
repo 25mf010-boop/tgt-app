@@ -948,15 +948,15 @@ async function updateCompleteView() {
   const finalSurveyCard = document.getElementById('final-survey-card');
   const thanksCard = document.getElementById('all-complete-thanks-card');
 
-  if (phaseData.survey4_completed || phaseData.survey3_completed) {
-    finalSurveyCard.classList.add('hidden');
-    thanksCard.classList.remove('hidden');
+  if (phaseData.survey4_completed) {
+    if (finalSurveyCard) finalSurveyCard.classList.add('hidden');
+    if (thanksCard) thanksCard.classList.remove('hidden');
   } else if (progress.completedDays >= 14 || phaseInfo.isFinalDay) {
-    finalSurveyCard.classList.remove('hidden');
-    thanksCard.classList.add('hidden');
+    if (finalSurveyCard) finalSurveyCard.classList.remove('hidden');
+    if (thanksCard) thanksCard.classList.add('hidden');
   } else {
-    finalSurveyCard.classList.add('hidden');
-    thanksCard.classList.add('hidden');
+    if (finalSurveyCard) finalSurveyCard.classList.add('hidden');
+    if (thanksCard) thanksCard.classList.add('hidden');
   }
 
   // 日替わりおもしろ雑学コラムの抽出
