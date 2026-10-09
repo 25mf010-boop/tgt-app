@@ -132,7 +132,7 @@
               <div>
                 <span class="badge-tag">7日目特別タスク</span>
                 <h3 class="banner-title">📋 中間アンケート③のご協力のお願い</h3>
-                <p class="banner-desc">TGT記録1週間お疲れ様です！本日の記録（7日目）に入力する前に、中間アンケート③（約3分）へご協力をお願いいたします。</p>
+                <p class="banner-desc">TGT記録1週間お疲れ様です！本日の記録（7日目）に入力する前に、中間アンケート③（約10分）へご協力をお願いいたします。</p>
               </div>
               <div class="text-center mt-2">
                 <a id="survey3-link-btn" href="https://forms.gle/znyYnoKzUSyD5k9LA" target="_blank" class="btn btn-primary btn-lg" style="width: 100%; display: inline-block;">
@@ -471,6 +471,20 @@
           <!-- Supabaseクラウド接続診断ステータス表示 -->
           <div id="admin-supabase-status-box" class="mb-3" style="padding: 10px 14px; border-radius: 8px; font-size: 0.82rem; background: rgba(92,111,82,0.08); border: 1px solid var(--color-primary-green); text-align: left;">
             🔄 Supabase クラウドデータベースの接続状態を確認中...
+          </div>
+
+          <!-- Web Push登録件数＆テスト送信カード -->
+          <div id="admin-webpush-card" class="mb-3" style="padding: 12px 14px; border-radius: 10px; font-size: 0.85rem; background: rgba(92,111,82,0.06); border: 1px dashed var(--color-primary-green); text-align: left;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+              <div>
+                <strong>🔔 Web Push 通知宛先データ:</strong> 
+                <span id="admin-stat-push-count" style="font-weight: bold; color: var(--color-primary-green);">確認中...</span>
+              </div>
+              <button id="admin-test-push-btn" class="btn btn-primary btn-sm" style="font-size: 0.75rem; padding: 4px 10px;">
+                🧪 今すぐ全宛先へテストPush送信
+              </button>
+            </div>
+            <p style="font-size: 0.75rem; color: var(--color-text-sub); margin: 6px 0 0 0;">※ 被験者が「通知を許可する」を押すと宛先がSupabaseへ自動保存されます。</p>
           </div>
 
           <div class="admin-stats-row">
